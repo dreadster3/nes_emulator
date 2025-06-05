@@ -38,7 +38,7 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 
   - [x] INX (Increment X Register)
   - [x] INY (Increment Y Register)
-  - [ ] INC (Increment Memory)
+  - [x] INC (Increment Memory)
   - [ ] DEX (Decrement X Register)
   - [ ] DEY (Decrement Y Register)
   - [ ] DEC (Decrement Memory)

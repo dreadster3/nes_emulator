@@ -18,6 +18,7 @@ pub enum AddressMode {
 pub enum Mnemonic {
     ADC,
     ASL,
+    INC,
     LDA,
     LDY,
     LDX,
@@ -121,6 +122,12 @@ lazy_static! {
         OpCode::new(0x16, Mnemonic::ASL, 2, 6, AddressMode::ZeroPageX),
         OpCode::new(0x0E, Mnemonic::ASL, 3, 6, AddressMode::Absolute),
         OpCode::new(0x1E, Mnemonic::ASL, 3, 7, AddressMode::AbsoluteX),
+
+        // INC
+        OpCode::new(0xE6, Mnemonic::INC, 2, 5, AddressMode::ZeroPage),
+        OpCode::new(0xF6, Mnemonic::INC, 2, 6, AddressMode::ZeroPageX),
+        OpCode::new(0xEE, Mnemonic::INC, 3, 6, AddressMode::Absolute),
+        OpCode::new(0xFE, Mnemonic::INC, 3, 7, AddressMode::AbsoluteX),
     ];
 
     pub static ref OPCODE_MAP: HashMap<u8, &'static OpCode> = OPCODES.iter().fold(HashMap::new(), |mut map, opcode| {

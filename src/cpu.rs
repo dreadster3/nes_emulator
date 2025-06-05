@@ -107,6 +107,7 @@ impl CPU {
                 Mnemonic::TYA => self.tya(),
                 Mnemonic::INX => self.inx(),
                 Mnemonic::INY => self.iny(),
+                Mnemonic::INC => self.inc(&opcode.mode),
                 Mnemonic::BRK => break,
             }
         }
@@ -261,6 +262,14 @@ impl CPU {
     }
     fn iny(&mut self) {
         self.set_register_y(self.register_y.wrapping_add(1));
+    }
+
+    fn inc(&mut self, mode: &AddressMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read_u8(address);
+        let result = value.wrapping_add(1);
+        self.mem_write_u8(address, result);
+        self.update_zero_and_negative_flags(result);
     }
 
     fn update_zero_flag(&mut self, result: u8) {
@@ -1354,5 +1363,91 @@ mod tests {
 
         assert_eq!(cpu.register_y, 0x00);
         assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn inc_zeropage() {
+        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0x05);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x06);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn inc_zeropage_x() {
+        let program: Vec<u8> = vec![0xF6, 0x10, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x05;
+        cpu.mem_write_u8(0x15, 0x05);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x15), 0x06);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn inc_absolute() {
+        let program: Vec<u8> = vec![0xEE, 0x00, 0x20, 0x00];
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x2000, 0x05);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x2000), 0x06);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn inc_absolute_x() {
+        let program: Vec<u8> = vec![0xFE, 0x00, 0x20, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x05;
+        cpu.mem_write_u8(0x2005, 0x05);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x2005), 0x06);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn inc_overflow() {
+        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0xFF);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn inc_negative_flag() {
+        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0x7F); // 127 -> 128 (0x80)
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x80);
+        assert_eq!(cpu.status, Status::Negative);
     }
 }
