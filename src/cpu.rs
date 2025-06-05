@@ -106,6 +106,7 @@ impl CPU {
                 Mnemonic::TXA => self.txa(),
                 Mnemonic::TYA => self.tya(),
                 Mnemonic::INX => self.inx(),
+                Mnemonic::INY => self.iny(),
                 Mnemonic::BRK => break,
             }
         }
@@ -257,6 +258,9 @@ impl CPU {
 
     fn inx(&mut self) {
         self.set_register_x(self.register_x.wrapping_add(1));
+    }
+    fn iny(&mut self) {
+        self.set_register_y(self.register_y.wrapping_add(1));
     }
 
     fn update_zero_flag(&mut self, result: u8) {
@@ -1322,6 +1326,33 @@ mod tests {
         }
 
         assert_eq!(cpu.register_x, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+    #[test]
+    fn iny() {
+        let program: Vec<u8> = vec![0xc8, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_y = 5;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_y, 6);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn iny_overflow() {
+        let program: Vec<u8> = vec![0xc8, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_y = 0xff;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_y, 0x00);
         assert_eq!(cpu.status, Status::Zero);
     }
 }

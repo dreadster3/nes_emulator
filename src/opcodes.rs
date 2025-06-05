@@ -29,6 +29,7 @@ pub enum Mnemonic {
     TXA,
     TYA,
     INX,
+    INY,
 }
 
 pub struct OpCode {
@@ -59,6 +60,7 @@ lazy_static! {
         OpCode::new(0x8a, Mnemonic::TXA, 1, 2, AddressMode::None),
         OpCode::new(0x98, Mnemonic::TYA, 1, 2, AddressMode::None),
         OpCode::new(0xe8, Mnemonic::INX, 1, 2, AddressMode::None),
+        OpCode::new(0xc8, Mnemonic::INY, 1, 2, AddressMode::None),
 
         // LDA
         OpCode::new(0xa9, Mnemonic::LDA, 2, 2, AddressMode::Immediate),
