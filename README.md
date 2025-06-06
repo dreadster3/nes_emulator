@@ -40,8 +40,8 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
   - [x] INY (Increment Y Register)
   - [x] INC (Increment Memory)
   - [x] DEX (Decrement X Register)
-  - [ ] DEY (Decrement Y Register)
-  - [ ] DEC (Decrement Memory)
+  - [x] DEY (Decrement Y Register)
+  - [x] DEC (Decrement Memory)
 
 - **Arithmetic Operations**
 
