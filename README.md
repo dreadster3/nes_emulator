@@ -24,15 +24,15 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
   - [x] TAY (Transfer Accumulator to Y)
   - [x] TXA (Transfer X to Accumulator)
   - [x] TYA (Transfer Y to Accumulator)
-  - [ ] TSX (Transfer Stack Pointer to X)
-  - [ ] TXS (Transfer X to Stack Pointer)
+  - [x] TSX (Transfer Stack Pointer to X)
+  - [x] TXS (Transfer X to Stack Pointer)
 
 - **Stack Operations**
 
-  - [ ] PHA (Push Accumulator)
-  - [ ] PHP (Push Processor Status)
-  - [ ] PLA (Pull Accumulator)
-  - [ ] PLP (Pull Processor Status)
+  - [x] PHA (Push Accumulator)
+  - [x] PHP (Push Processor Status)
+  - [x] PLA (Pull Accumulator)
+  - [x] PLP (Pull Processor Status)
 
 - **Decrements & Increments**
 
@@ -54,8 +54,8 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 - **Logical Operations**
 
   - [x] AND (Logical AND)
-  - [ ] EOR (Exclusive OR)
-  - [ ] ORA (Logical OR)
+  - [x] EOR (Exclusive OR)
+  - [x] ORA (Logical OR)
   - [ ] BIT (Bit Test)
 
 - **Shifts & Rotates**

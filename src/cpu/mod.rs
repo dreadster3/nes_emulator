@@ -1,8 +1,14 @@
+mod instructions;
+mod memory;
+
 use bitflags::bitflags;
 use derivative::Derivative;
 use thiserror::Error;
 
 use crate::opcodes::{AddressMode, Mnemonic, OPCODE_MAP};
+
+use instructions::*;
+use memory::Memory;
 
 bitflags! {
     #[derive(Debug, Default, Eq, PartialEq)]
@@ -17,6 +23,8 @@ bitflags! {
     }
 }
 
+const STACK_BASE: u16 = 0x0100;
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct CPU {
@@ -24,11 +32,11 @@ pub struct CPU {
     register_x: u8,
     register_y: u8,
     pub status: Status,
-    pub program_counter: u16,
-    pub stack_pointer: u8,
+    program_counter: u16,
+    stack_pointer: u8,
 
     #[derivative(Debug = "ignore")]
-    memory: [u8; 0xFFFF],
+    pub(super) memory: [u8; 0xFFFF],
 }
 
 impl Default for CPU {
@@ -57,6 +65,39 @@ impl CPU {
             stack_pointer: 0xFF,
             memory: [0; 0xFFFF],
         }
+    }
+
+    fn read_u8(&mut self) -> u8 {
+        let result = self.mem_read_u8(self.program_counter);
+        self.program_counter += 1;
+
+        result
+    }
+
+    fn read_u16(&mut self) -> u16 {
+        let hi = self.read_u8();
+        let lo = self.read_u8();
+
+        u16::from_le_bytes([hi, lo])
+    }
+
+    pub fn stack_push(&mut self, value: u8) {
+        self.mem_write_u8(STACK_BASE + self.stack_pointer as u16, value);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    pub fn stack_pop(&mut self) -> u8 {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.mem_read_u8(STACK_BASE + self.stack_pointer as u16)
+    }
+
+    pub fn set_stack_pointer(&mut self, value: u8) {
+        self.stack_pointer = value;
+        self.update_zero_and_negative_flags(self.stack_pointer);
+    }
+
+    pub fn get_stack_pointer(&self) -> u8 {
+        self.stack_pointer
     }
 
     pub fn get_register_a(&self) -> u8 {
@@ -99,18 +140,26 @@ impl CPU {
                 Mnemonic::LDY => self.ldy(&opcode.mode),
                 Mnemonic::STA => self.sta(&opcode.mode),
                 Mnemonic::AND => self.and(&opcode.mode),
+                Mnemonic::EOR => self.eor(&opcode.mode),
+                Mnemonic::ORA => self.ora(&opcode.mode),
                 Mnemonic::ADC => self.adc(&opcode.mode),
                 Mnemonic::ASL => self.asl(&opcode.mode),
                 Mnemonic::TAX => self.tax(),
                 Mnemonic::TAY => self.tay(),
                 Mnemonic::TXA => self.txa(),
                 Mnemonic::TYA => self.tya(),
+                Mnemonic::TXS => self.txs(),
+                Mnemonic::TSX => self.tsx(),
                 Mnemonic::INX => self.inx(),
                 Mnemonic::INY => self.iny(),
                 Mnemonic::INC => self.inc(&opcode.mode),
                 Mnemonic::DEX => self.dex(),
                 Mnemonic::DEY => self.dey(),
                 Mnemonic::DEC => self.dec(&opcode.mode),
+                Mnemonic::PHA => self.pha(),
+                Mnemonic::PLA => self.pla(),
+                Mnemonic::PHP => self.php(),
+                Mnemonic::PLP => self.plp(),
                 Mnemonic::NOP => continue,
                 Mnemonic::BRK => break,
             }
@@ -133,69 +182,10 @@ impl CPU {
         self.register_x = 0;
         self.register_a = 0;
         self.program_counter = 0;
+        self.stack_pointer = 0xFF;
         self.status = Status::empty();
 
         self.program_counter = self.mem_read_u16(0xFFFC);
-    }
-
-    fn mem_read_u8(&self, address: u16) -> u8 {
-        self.memory[address as usize]
-    }
-
-    fn mem_write_u8(&mut self, address: u16, value: u8) {
-        self.memory[address as usize] = value;
-    }
-
-    fn mem_read_u16(&self, address: u16) -> u16 {
-        let hi = self.mem_read_u8(address);
-        let lo = self.mem_read_u8(address + 1);
-
-        u16::from_le_bytes([hi, lo])
-    }
-
-    fn mem_write_u16(&mut self, address: u16, value: u16) {
-        let bytes = value.to_le_bytes();
-        self.mem_write_u8(address, bytes[0]);
-        self.mem_write_u8(address + 1, bytes[1]);
-    }
-
-    fn read_u8(&mut self) -> u8 {
-        let result = self.mem_read_u8(self.program_counter);
-        self.program_counter += 1;
-
-        result
-    }
-
-    fn read_u16(&mut self) -> u16 {
-        let hi = self.read_u8();
-        let lo = self.read_u8();
-
-        u16::from_le_bytes([hi, lo])
-    }
-
-    fn lda(&mut self, mode: &AddressMode) {
-        let operand = self.get_operand(mode);
-        self.set_register_a(operand);
-    }
-
-    fn ldx(&mut self, mode: &AddressMode) {
-        let operand = self.get_operand(mode);
-        self.set_register_x(operand);
-    }
-
-    fn ldy(&mut self, mode: &AddressMode) {
-        let operand = self.get_operand(mode);
-        self.set_register_y(operand);
-    }
-
-    fn sta(&mut self, mode: &AddressMode) {
-        let address = self.get_operand_address(mode);
-        self.mem_write_u8(address, self.register_a);
-    }
-
-    fn and(&mut self, mode: &AddressMode) {
-        let operand = self.get_operand(mode);
-        self.set_register_a(self.register_a & operand);
     }
 
     fn asl(&mut self, mode: &AddressMode) {
@@ -245,54 +235,6 @@ impl CPU {
         self.set_register_a(sum as u8);
     }
 
-    fn tax(&mut self) {
-        self.set_register_x(self.register_a)
-    }
-
-    fn tay(&mut self) {
-        self.set_register_y(self.register_a)
-    }
-
-    fn txa(&mut self) {
-        self.set_register_a(self.register_x)
-    }
-
-    fn tya(&mut self) {
-        self.set_register_a(self.register_y)
-    }
-
-    fn inx(&mut self) {
-        self.set_register_x(self.register_x.wrapping_add(1));
-    }
-
-    fn iny(&mut self) {
-        self.set_register_y(self.register_y.wrapping_add(1));
-    }
-
-    fn inc(&mut self, mode: &AddressMode) {
-        let address = self.get_operand_address(mode);
-        let value = self.mem_read_u8(address);
-        let result = value.wrapping_add(1);
-        self.mem_write_u8(address, result);
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn dex(&mut self) {
-        self.set_register_x(self.register_x.wrapping_sub(1));
-    }
-
-    fn dey(&mut self) {
-        self.set_register_y(self.register_y.wrapping_sub(1));
-    }
-
-    fn dec(&mut self, mode: &AddressMode) {
-        let address = self.get_operand_address(mode);
-        let value = self.mem_read_u8(address);
-        let result = value.wrapping_sub(1);
-        self.mem_write_u8(address, result);
-        self.update_zero_and_negative_flags(result);
-    }
-
     fn update_zero_flag(&mut self, result: u8) {
         if result == 0 {
             self.status.insert(Status::Zero);
@@ -309,12 +251,12 @@ impl CPU {
         }
     }
 
-    fn update_zero_and_negative_flags(&mut self, result: u8) {
+    pub fn update_zero_and_negative_flags(&mut self, result: u8) {
         self.update_zero_flag(result);
         self.update_negative_flag(result);
     }
 
-    fn get_operand_address(&mut self, mode: &AddressMode) -> u16 {
+    pub(super) fn get_operand_address(&mut self, mode: &AddressMode) -> u16 {
         match mode {
             AddressMode::Immediate => {
                 let current = self.program_counter;
@@ -340,7 +282,7 @@ impl CPU {
         }
     }
 
-    fn get_operand(&mut self, mode: &AddressMode) -> u8 {
+    pub(super) fn get_operand(&mut self, mode: &AddressMode) -> u8 {
         match mode {
             AddressMode::Accumulator => self.register_a,
             _ => {

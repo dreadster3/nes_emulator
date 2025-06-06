@@ -27,6 +27,14 @@ pub enum Mnemonic {
     TAY,
     TXA,
     TYA,
+    TXS,
+    TSX,
+
+    // Stack operations
+    PHA,
+    PHP,
+    PLA,
+    PLP,
 
     // Increment/Decrement
     INX,
@@ -41,6 +49,8 @@ pub enum Mnemonic {
 
     // Logical
     AND,
+    EOR,
+    ORA,
 
     // Shift
     ASL,
@@ -78,10 +88,17 @@ lazy_static! {
         OpCode::new(0xa8, Mnemonic::TAY, 1, 2, AddressMode::None),
         OpCode::new(0x8a, Mnemonic::TXA, 1, 2, AddressMode::None),
         OpCode::new(0x98, Mnemonic::TYA, 1, 2, AddressMode::None),
+        OpCode::new(0xba, Mnemonic::TSX, 1, 2, AddressMode::None),
+        OpCode::new(0x9a, Mnemonic::TXS, 1, 2, AddressMode::None),
         OpCode::new(0xe8, Mnemonic::INX, 1, 2, AddressMode::None),
         OpCode::new(0xc8, Mnemonic::INY, 1, 2, AddressMode::None),
         OpCode::new(0xca, Mnemonic::DEX, 1, 2, AddressMode::None),
         OpCode::new(0x88, Mnemonic::DEY, 1, 2, AddressMode::None),
+        OpCode::new(0x48, Mnemonic::PHA, 1, 3, AddressMode::None),
+        OpCode::new(0x68, Mnemonic::PLA, 1, 4, AddressMode::None),
+        OpCode::new(0x08, Mnemonic::PHP, 1, 3, AddressMode::None),
+        OpCode::new(0x28, Mnemonic::PLP, 1, 4, AddressMode::None),
+
 
         // LDA
         OpCode::new(0xa9, Mnemonic::LDA, 2, 2, AddressMode::Immediate),
@@ -125,6 +142,26 @@ lazy_static! {
         OpCode::new(0x39, Mnemonic::AND, 3, 4, AddressMode::AbsoluteY),
         OpCode::new(0x21, Mnemonic::AND, 2, 6, AddressMode::IndirectX),
         OpCode::new(0x31, Mnemonic::AND, 2, 5, AddressMode::IndirectY),
+
+        // EOR
+        OpCode::new(0x49, Mnemonic::EOR, 2, 2, AddressMode::Immediate),
+        OpCode::new(0x45, Mnemonic::EOR, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0x55, Mnemonic::EOR, 2, 4, AddressMode::ZeroPageX),
+        OpCode::new(0x4d, Mnemonic::EOR, 3, 4, AddressMode::Absolute),
+        OpCode::new(0x5d, Mnemonic::EOR, 3, 4, AddressMode::AbsoluteX),
+        OpCode::new(0x59, Mnemonic::EOR, 3, 4, AddressMode::AbsoluteY),
+        OpCode::new(0x41, Mnemonic::EOR, 2, 6, AddressMode::IndirectX),
+        OpCode::new(0x51, Mnemonic::EOR, 2, 5, AddressMode::IndirectY),
+
+        // ORA
+        OpCode::new(0x09, Mnemonic::ORA, 2, 2, AddressMode::Immediate),
+        OpCode::new(0x05, Mnemonic::ORA, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0x15, Mnemonic::ORA, 2, 4, AddressMode::ZeroPageX),
+        OpCode::new(0x0d, Mnemonic::ORA, 3, 4, AddressMode::Absolute),
+        OpCode::new(0x1d, Mnemonic::ORA, 3, 4, AddressMode::AbsoluteX),
+        OpCode::new(0x19, Mnemonic::ORA, 3, 4, AddressMode::AbsoluteY),
+        OpCode::new(0x01, Mnemonic::ORA, 2, 6, AddressMode::IndirectX),
+        OpCode::new(0x11, Mnemonic::ORA, 2, 5, AddressMode::IndirectY),
 
         // ADC
         OpCode::new(0x69, Mnemonic::ADC, 2, 2, AddressMode::Immediate),
