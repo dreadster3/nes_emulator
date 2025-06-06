@@ -16,22 +16,38 @@ pub enum AddressMode {
 }
 
 pub enum Mnemonic {
-    ADC,
-    ASL,
-    INC,
+    // Load/Store
     LDA,
     LDY,
     LDX,
-    AND,
     STA,
-    BRK,
+
+    // Register Transfer
     TAX,
     TAY,
     TXA,
     TYA,
+
+    // Increment/Decrement
     INX,
     INY,
+    INC,
     DEX,
+    DEY,
+    DEC,
+
+    // Arithmetic
+    ADC,
+
+    // Logical
+    AND,
+
+    // Shift
+    ASL,
+
+    // Other
+    BRK,
+    NOP,
 }
 
 pub struct OpCode {
@@ -57,6 +73,7 @@ impl OpCode {
 lazy_static! {
     pub static ref OPCODES: Vec<OpCode> = vec![
         OpCode::new(0x00, Mnemonic::BRK, 1, 7, AddressMode::None),
+        OpCode::new(0xea, Mnemonic::NOP, 1, 2, AddressMode::None),
         OpCode::new(0xaa, Mnemonic::TAX, 1, 2, AddressMode::None),
         OpCode::new(0xa8, Mnemonic::TAY, 1, 2, AddressMode::None),
         OpCode::new(0x8a, Mnemonic::TXA, 1, 2, AddressMode::None),
@@ -64,6 +81,7 @@ lazy_static! {
         OpCode::new(0xe8, Mnemonic::INX, 1, 2, AddressMode::None),
         OpCode::new(0xc8, Mnemonic::INY, 1, 2, AddressMode::None),
         OpCode::new(0xca, Mnemonic::DEX, 1, 2, AddressMode::None),
+        OpCode::new(0x88, Mnemonic::DEY, 1, 2, AddressMode::None),
 
         // LDA
         OpCode::new(0xa9, Mnemonic::LDA, 2, 2, AddressMode::Immediate),
@@ -130,6 +148,12 @@ lazy_static! {
         OpCode::new(0xF6, Mnemonic::INC, 2, 6, AddressMode::ZeroPageX),
         OpCode::new(0xEE, Mnemonic::INC, 3, 6, AddressMode::Absolute),
         OpCode::new(0xFE, Mnemonic::INC, 3, 7, AddressMode::AbsoluteX),
+
+        // DEC
+        OpCode::new(0xC6, Mnemonic::DEC, 2, 5, AddressMode::ZeroPage),
+        OpCode::new(0xD6, Mnemonic::DEC, 2, 6, AddressMode::ZeroPageX),
+        OpCode::new(0xCE, Mnemonic::DEC, 3, 6, AddressMode::Absolute),
+        OpCode::new(0xDE, Mnemonic::DEC, 3, 7, AddressMode::AbsoluteX),
     ];
 
     pub static ref OPCODE_MAP: HashMap<u8, &'static OpCode> = OPCODES.iter().fold(HashMap::new(), |mut map, opcode| {

@@ -95,7 +95,7 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 
 - **Other**
   - [x] BRK (Force Interrupt)
-  - [ ] NOP (No Operation)
+  - [x] NOP (No Operation)
 
 ### Other Components
 
