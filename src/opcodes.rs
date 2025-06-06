@@ -62,6 +62,15 @@ pub enum Mnemonic {
     // Shift
     ASL,
 
+    // Flags
+    CLC,
+    CLD,
+    CLI,
+    CLV,
+    SEC,
+    SED,
+    SEI,
+
     // Other
     BRK,
     NOP,
@@ -205,6 +214,15 @@ lazy_static! {
         OpCode::new(0x20, Mnemonic::JSR, 3, 6, AddressMode::Absolute),
         OpCode::new(0x60, Mnemonic::RTS, 1, 6, AddressMode::None),
         OpCode::new(0x40, Mnemonic::RTI, 1, 6, AddressMode::None),
+
+        // Flags
+        OpCode::new(0x38, Mnemonic::SEC, 1, 2, AddressMode::None),
+        OpCode::new(0xf8, Mnemonic::SED, 1, 2, AddressMode::None),
+        OpCode::new(0x78, Mnemonic::SEI, 1, 2, AddressMode::None),
+        OpCode::new(0x18, Mnemonic::CLC, 1, 2, AddressMode::None),
+        OpCode::new(0xd8, Mnemonic::CLD, 1, 2, AddressMode::None),
+        OpCode::new(0x58, Mnemonic::CLI, 1, 2, AddressMode::None),
+        OpCode::new(0xb8, Mnemonic::CLV, 1, 2, AddressMode::None),
     ];
 
     pub static ref OPCODE_MAP: HashMap<u8, &'static OpCode> = OPCODES.iter().fold(HashMap::new(), |mut map, opcode| {

@@ -1,6 +1,6 @@
 use crate::cpu::CPU;
 
-pub(super) trait Memory {
+pub trait Memory {
     fn mem_read_u8(&self, address: u16) -> u8;
     fn mem_write_u8(&mut self, address: u16, value: u8);
     fn mem_read_u16(&self, address: u16) -> u16 {

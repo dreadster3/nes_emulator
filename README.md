@@ -67,10 +67,10 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 
 - **Jumps & Calls**
 
-  - [ ] JMP (Jump)
-  - [ ] JSR (Jump to Subroutine)
-  - [ ] RTS (Return from Subroutine)
-  - [ ] RTI (Return from Interrupt)
+  - [x] JMP (Jump)
+  - [x] JSR (Jump to Subroutine)
+  - [x] RTS (Return from Subroutine)
+  - [x] RTI (Return from Interrupt)
 
 - **Branches**
 
@@ -85,13 +85,13 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 
 - **Status Flag Changes**
 
-  - [ ] CLC (Clear Carry Flag)
-  - [ ] CLD (Clear Decimal Mode)
-  - [ ] CLI (Clear Interrupt Disable)
-  - [ ] CLV (Clear Overflow Flag)
-  - [ ] SEC (Set Carry Flag)
-  - [ ] SED (Set Decimal Flag)
-  - [ ] SEI (Set Interrupt Disable)
+  - [x] CLC (Clear Carry Flag)
+  - [x] CLD (Clear Decimal Mode)
+  - [x] CLI (Clear Interrupt Disable)
+  - [x] CLV (Clear Overflow Flag)
+  - [x] SEC (Set Carry Flag)
+  - [x] SED (Set Decimal Flag)
+  - [x] SEI (Set Interrupt Disable)
 
 - **Other**
   - [x] BRK (Force Interrupt)

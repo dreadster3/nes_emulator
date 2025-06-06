@@ -1,5 +1,5 @@
 mod instructions;
-mod memory;
+pub mod memory;
 
 use bitflags::bitflags;
 use derivative::Derivative;
@@ -15,7 +15,7 @@ bitflags! {
     pub struct Status: u8 {
         const Carry = 0b0000_0001;
         const Zero = 0b0000_0010;
-        const Interrupt = 0b0000_0100;
+        const InterruptDisable = 0b0000_0100;
         const Decimal = 0b0000_1000;
         const Break = 0b0001_0000;
         const Overflow = 0b0100_0000;
@@ -87,7 +87,7 @@ impl CPU {
     }
 
     pub fn stack_push_u16(&mut self, value: u16) {
-        let bytes = value.to_le_bytes();
+        let bytes = value.to_be_bytes();
         self.stack_push(bytes[0]);
         self.stack_push(bytes[1]);
     }
@@ -152,6 +152,7 @@ impl CPU {
             callback(self);
 
             let instruction = self.read_u8();
+            println!("{instruction:02x}");
             let opcode = OPCODE_MAP
                 .get(&instruction)
                 .ok_or(CPUError::UnknownOpcode(instruction))?;
@@ -186,6 +187,13 @@ impl CPU {
                 Mnemonic::JMP => self.jmp(&opcode.mode),
                 Mnemonic::RTS => self.rts(),
                 Mnemonic::RTI => self.rti(),
+                Mnemonic::CLI => self.cli(),
+                Mnemonic::CLC => self.clc(),
+                Mnemonic::CLD => self.cld(),
+                Mnemonic::CLV => self.clv(),
+                Mnemonic::SEC => self.sec(),
+                Mnemonic::SEI => self.sei(),
+                Mnemonic::SED => self.sed(),
                 Mnemonic::NOP => continue,
                 Mnemonic::BRK => break,
             }

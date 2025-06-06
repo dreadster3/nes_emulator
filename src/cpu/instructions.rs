@@ -192,3 +192,43 @@ impl JumpOperations for CPU {
         self.program_counter = self.stack_pop_u16();
     }
 }
+
+pub(super) trait StatusFlagsOperations {
+    fn clc(&mut self);
+    fn cli(&mut self);
+    fn clv(&mut self);
+    fn cld(&mut self);
+    fn sec(&mut self);
+    fn sei(&mut self);
+    fn sed(&mut self);
+}
+
+impl StatusFlagsOperations for CPU {
+    fn clc(&mut self) {
+        self.status.remove(Status::Carry);
+    }
+
+    fn cli(&mut self) {
+        self.status.remove(Status::InterruptDisable);
+    }
+
+    fn clv(&mut self) {
+        self.status.remove(Status::Overflow);
+    }
+
+    fn cld(&mut self) {
+        self.status.remove(Status::Decimal);
+    }
+
+    fn sec(&mut self) {
+        self.status.insert(Status::Carry);
+    }
+
+    fn sei(&mut self) {
+        self.status.insert(Status::InterruptDisable);
+    }
+
+    fn sed(&mut self) {
+        self.status.insert(Status::Decimal);
+    }
+}

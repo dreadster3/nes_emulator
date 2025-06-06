@@ -45,8 +45,10 @@
           packages.default = pkgs.hello;
 
           # Dev shells
-          devShells.default =
-            pkgs.mkShell { buildInputs = with pkgs; [ rust grcov ]; };
+          devShells.default = pkgs.mkShell {
+            buildInputs = with pkgs; [ rust grcov SDL2 ];
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [ SDL2 ]);
+          };
         };
       flake = {
         # The usual flake attributes can be defined here, including system-
