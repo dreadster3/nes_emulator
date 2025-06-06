@@ -1603,4 +1603,264 @@ mod tests {
         assert_eq!(cpu.mem_read_u8(0x10), 0x80);
         assert_eq!(cpu.status, Status::Negative);
     }
+
+    #[test]
+    fn tsx() {
+        let program: Vec<u8> = vec![0xba, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0x50;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0x50);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn tsx_zero_flag() {
+        let program: Vec<u8> = vec![0xba, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0x00;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn tsx_negative_flag() {
+        let program: Vec<u8> = vec![0xba, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0x80;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0x80);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn txs() {
+        let program: Vec<u8> = vec![0x9a, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x50;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.stack_pointer, 0x50);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn txs_zero_flag() {
+        let program: Vec<u8> = vec![0x9a, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x00;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.stack_pointer, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn txs_negative_flag() {
+        let program: Vec<u8> = vec![0x9a, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x80;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.stack_pointer, 0x80);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn pha() {
+        let program: Vec<u8> = vec![0x48, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x42;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x01FF), 0x42);
+        assert_eq!(cpu.stack_pointer, 0xFE);
+    }
+
+    #[test]
+    fn pla() {
+        let program: Vec<u8> = vec![0x68, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0xFE;
+        cpu.mem_write_u8(0x01FF, 0x42);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0x42);
+        assert_eq!(cpu.stack_pointer, 0xFF);
+        assert!(cpu.status.is_empty());
+    }
+
+    #[test]
+    fn pla_zero_flag() {
+        let program: Vec<u8> = vec![0x68, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0xFE;
+        cpu.mem_write_u8(0x01FF, 0x00);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn pla_negative_flag() {
+        let program: Vec<u8> = vec![0x68, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0xFE;
+        cpu.mem_write_u8(0x01FF, 0x80);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0x80);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn php() {
+        let program: Vec<u8> = vec![0x08, 0x00];
+        let mut cpu = CPU::new();
+        cpu.status = Status::Carry | Status::Zero;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.mem_read_u8(0x01FF), (Status::Carry | Status::Zero).bits());
+        assert_eq!(cpu.stack_pointer, 0xFE);
+    }
+
+    #[test]
+    fn plp() {
+        let program: Vec<u8> = vec![0x28, 0x00];
+        let mut cpu = CPU::new();
+        cpu.stack_pointer = 0xFE;
+        cpu.mem_write_u8(0x01FF, (Status::Carry | Status::Zero).bits());
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.status, Status::Carry | Status::Zero);
+        assert_eq!(cpu.stack_pointer, 0xFF);
+    }
+
+    #[test]
+    fn eor_immediate() {
+        let program: Vec<u8> = vec![0x49, 0x0F, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xF0;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0xFF);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn eor_zero_flag() {
+        let program: Vec<u8> = vec![0x49, 0xFF, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xFF;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn eor_zeropage() {
+        let program: Vec<u8> = vec![0x45, 0x05, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x05, 0x0F);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0xFF);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn ora_immediate() {
+        let program: Vec<u8> = vec![0x09, 0x0F, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xF0;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0xFF);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn ora_zero_flag() {
+        let program: Vec<u8> = vec![0x09, 0x00, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x00;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0x00);
+        assert_eq!(cpu.status, Status::Zero);
+    }
+
+    #[test]
+    fn ora_zeropage() {
+        let program: Vec<u8> = vec![0x05, 0x05, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x05, 0x0F);
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_a, 0xFF);
+        assert_eq!(cpu.status, Status::Negative);
+    }
+
 }
