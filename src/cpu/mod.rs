@@ -32,7 +32,7 @@ pub struct CPU {
     register_x: u8,
     register_y: u8,
     pub status: Status,
-    program_counter: u16,
+    pub program_counter: u16,
     stack_pointer: u8,
 
     #[derivative(Debug = "ignore")]
@@ -47,7 +47,7 @@ impl Default for CPU {
 
 #[derive(Error, Debug)]
 pub enum CPUError {
-    #[error("Unknown instruction {0}")]
+    #[error("Unknown instruction 0x{0:02x}")]
     UnknownOpcode(u8),
 
     #[error("IO Error")]
@@ -86,9 +86,22 @@ impl CPU {
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
+    pub fn stack_push_u16(&mut self, value: u16) {
+        let bytes = value.to_le_bytes();
+        self.stack_push(bytes[0]);
+        self.stack_push(bytes[1]);
+    }
+
     pub fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.mem_read_u8(STACK_BASE + self.stack_pointer as u16)
+    }
+
+    pub fn stack_pop_u16(&mut self) -> u16 {
+        let hi = self.stack_pop();
+        let lo = self.stack_pop();
+
+        u16::from_le_bytes([hi, lo])
     }
 
     pub fn set_stack_pointer(&mut self, value: u8) {
@@ -128,7 +141,16 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> Result<(), CPUError> {
+        self.run_with_callback(|_| {})
+    }
+
+    pub fn run_with_callback<F>(&mut self, mut callback: F) -> Result<(), CPUError>
+    where
+        F: FnMut(&mut CPU),
+    {
         loop {
+            callback(self);
+
             let instruction = self.read_u8();
             let opcode = OPCODE_MAP
                 .get(&instruction)
@@ -160,6 +182,10 @@ impl CPU {
                 Mnemonic::PLA => self.pla(),
                 Mnemonic::PHP => self.php(),
                 Mnemonic::PLP => self.plp(),
+                Mnemonic::JSR => self.jsr(&opcode.mode),
+                Mnemonic::JMP => self.jmp(&opcode.mode),
+                Mnemonic::RTS => self.rts(),
+                Mnemonic::RTI => self.rti(),
                 Mnemonic::NOP => continue,
                 Mnemonic::BRK => break,
             }
@@ -170,12 +196,14 @@ impl CPU {
 
     pub fn load_and_run(&mut self, program: Vec<u8>) -> Result<(), CPUError> {
         self.load(program);
+        self.reset();
         self.run()
     }
 
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x8000..0x8000 + program.len()].copy_from_slice(&program[..]);
-        self.program_counter = 0x8000;
+        let start = 0x0600;
+        self.memory[start..start + program.len()].copy_from_slice(&program[..]);
+        self.mem_write_u16(0xFFFC, start as u16);
     }
 
     pub fn reset(&mut self) {
@@ -269,6 +297,10 @@ impl CPU {
             AddressMode::Absolute => self.read_u16(),
             AddressMode::AbsoluteX => self.read_u16().wrapping_add(self.register_x as u16),
             AddressMode::AbsoluteY => self.read_u16().wrapping_add(self.register_y as u16),
+            AddressMode::Indirect => {
+                let address = self.read_u16();
+                self.mem_read_u16(address)
+            }
             AddressMode::IndirectX => {
                 let base = self.read_u8().wrapping_add(self.register_x);
                 self.mem_read_u16(base as u16)
@@ -1758,7 +1790,10 @@ mod tests {
             unreachable!("{}", err);
         }
 
-        assert_eq!(cpu.mem_read_u8(0x01FF), (Status::Carry | Status::Zero).bits());
+        assert_eq!(
+            cpu.mem_read_u8(0x01FF),
+            (Status::Carry | Status::Zero).bits()
+        );
         assert_eq!(cpu.stack_pointer, 0xFE);
     }
 
@@ -1862,5 +1897,4 @@ mod tests {
         assert_eq!(cpu.register_a, 0xFF);
         assert_eq!(cpu.status, Status::Negative);
     }
-
 }

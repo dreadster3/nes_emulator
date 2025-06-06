@@ -163,3 +163,32 @@ impl DecrementOperations for CPU {
         self.update_zero_and_negative_flags(result);
     }
 }
+
+pub(super) trait JumpOperations {
+    fn jmp(&mut self, mode: &AddressMode);
+    fn jsr(&mut self, mode: &AddressMode);
+    fn rts(&mut self);
+    fn rti(&mut self);
+}
+
+impl JumpOperations for CPU {
+    fn jmp(&mut self, mode: &AddressMode) {
+        let address = self.get_operand_address(mode);
+        self.program_counter = address;
+    }
+
+    fn jsr(&mut self, mode: &AddressMode) {
+        let target_address = self.get_operand_address(mode);
+        self.stack_push_u16(self.program_counter - 1);
+        self.program_counter = target_address;
+    }
+
+    fn rts(&mut self) {
+        self.program_counter = self.stack_pop_u16() + 1;
+    }
+
+    fn rti(&mut self) {
+        self.status = Status::from_bits_truncate(self.stack_pop());
+        self.program_counter = self.stack_pop_u16();
+    }
+}

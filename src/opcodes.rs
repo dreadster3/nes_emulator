@@ -10,6 +10,7 @@ pub enum AddressMode {
     Absolute,
     AbsoluteX,
     AbsoluteY,
+    Indirect,
     IndirectX,
     IndirectY,
     None,
@@ -43,6 +44,12 @@ pub enum Mnemonic {
     DEX,
     DEY,
     DEC,
+
+    // Jumps
+    JSR,
+    JMP,
+    RTI,
+    RTS,
 
     // Arithmetic
     ADC,
@@ -191,6 +198,13 @@ lazy_static! {
         OpCode::new(0xD6, Mnemonic::DEC, 2, 6, AddressMode::ZeroPageX),
         OpCode::new(0xCE, Mnemonic::DEC, 3, 6, AddressMode::Absolute),
         OpCode::new(0xDE, Mnemonic::DEC, 3, 7, AddressMode::AbsoluteX),
+
+        // JMP
+        OpCode::new(0x4c, Mnemonic::JMP, 3, 3, AddressMode::Absolute),
+        OpCode::new(0x6c, Mnemonic::JMP, 3, 5, AddressMode::Indirect),
+        OpCode::new(0x20, Mnemonic::JSR, 3, 6, AddressMode::Absolute),
+        OpCode::new(0x60, Mnemonic::RTS, 1, 6, AddressMode::None),
+        OpCode::new(0x40, Mnemonic::RTI, 1, 6, AddressMode::None),
     ];
 
     pub static ref OPCODE_MAP: HashMap<u8, &'static OpCode> = OPCODES.iter().fold(HashMap::new(), |mut map, opcode| {
