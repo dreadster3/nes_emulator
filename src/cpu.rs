@@ -107,6 +107,7 @@ impl CPU {
                 Mnemonic::TYA => self.tya(),
                 Mnemonic::INX => self.inx(),
                 Mnemonic::INY => self.iny(),
+                Mnemonic::DEX => self.dex(),
                 Mnemonic::INC => self.inc(&opcode.mode),
                 Mnemonic::BRK => break,
             }
@@ -262,6 +263,9 @@ impl CPU {
     }
     fn iny(&mut self) {
         self.set_register_y(self.register_y.wrapping_add(1));
+    }
+    fn dex(&mut self) {
+        self.set_register_x(self.register_x.wrapping_sub(1));
     }
 
     fn inc(&mut self, mode: &AddressMode) {
@@ -1449,5 +1453,50 @@ mod tests {
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x80);
         assert_eq!(cpu.status, Status::Negative);
+    }
+
+    #[test]
+    fn dex_decrements_x() {
+        let program: Vec<u8> = vec![0xCA, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x05;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0x04);
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn dex_sets_zero_flag() {
+        let program: Vec<u8> = vec![0xCA, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x01;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0x00);
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn dex_sets_negative_flag() {
+        let program: Vec<u8> = vec![0xCA, 0x00];
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x00;
+
+        if let Err(err) = cpu.load_and_run(program) {
+            unreachable!("{}", err);
+        }
+
+        assert_eq!(cpu.register_x, 0xFF);
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Negative));
     }
 }
