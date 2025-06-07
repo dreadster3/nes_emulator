@@ -13,6 +13,7 @@ pub enum AddressMode {
     Indirect,
     IndirectX,
     IndirectY,
+    Relative,
     None,
 }
 
@@ -51,8 +52,22 @@ pub enum Mnemonic {
     RTI,
     RTS,
 
+    // Branches
+    BEQ,
+    BNE,
+    BCS,
+    BCC,
+    BMI,
+    BPL,
+    BVS,
+    BVC,
+
     // Arithmetic
     ADC,
+    SBC,
+    CMP,
+    CPX,
+    CPY,
 
     // Logical
     AND,
@@ -61,6 +76,9 @@ pub enum Mnemonic {
 
     // Shift
     ASL,
+    LSR,
+    ROL,
+    ROR,
 
     // Flags
     CLC,
@@ -179,22 +197,30 @@ lazy_static! {
         OpCode::new(0x01, Mnemonic::ORA, 2, 6, AddressMode::IndirectX),
         OpCode::new(0x11, Mnemonic::ORA, 2, 5, AddressMode::IndirectY),
 
-        // ADC
-        OpCode::new(0x69, Mnemonic::ADC, 2, 2, AddressMode::Immediate),
-        OpCode::new(0x65, Mnemonic::ADC, 2, 3, AddressMode::ZeroPage),
-        OpCode::new(0x75, Mnemonic::ADC, 2, 4, AddressMode::ZeroPageX),
-        OpCode::new(0x6d, Mnemonic::ADC, 3, 4, AddressMode::Absolute),
-        OpCode::new(0x7d, Mnemonic::ADC, 3, 4, AddressMode::AbsoluteX),
-        OpCode::new(0x79, Mnemonic::ADC, 3, 4, AddressMode::AbsoluteY),
-        OpCode::new(0x61, Mnemonic::ADC, 2, 6, AddressMode::IndirectX),
-        OpCode::new(0x71, Mnemonic::ADC, 2, 5, AddressMode::IndirectY),
 
-        // ASL
+        // Shifts
+        //// ASL
         OpCode::new(0x0A, Mnemonic::ASL, 1, 2, AddressMode::Accumulator),
         OpCode::new(0x06, Mnemonic::ASL, 2, 5, AddressMode::ZeroPage),
         OpCode::new(0x16, Mnemonic::ASL, 2, 6, AddressMode::ZeroPageX),
         OpCode::new(0x0E, Mnemonic::ASL, 3, 6, AddressMode::Absolute),
         OpCode::new(0x1E, Mnemonic::ASL, 3, 7, AddressMode::AbsoluteX),
+        //// LSR
+        OpCode::new(0x4A, Mnemonic::LSR, 1, 2, AddressMode::Accumulator),
+        OpCode::new(0x46, Mnemonic::LSR, 2, 5, AddressMode::ZeroPage),
+        OpCode::new(0x56, Mnemonic::LSR, 2, 6, AddressMode::ZeroPageX),
+        OpCode::new(0x4E, Mnemonic::LSR, 3, 6, AddressMode::Absolute),
+        OpCode::new(0x5E, Mnemonic::LSR, 3, 7, AddressMode::AbsoluteX),
+        //// ROL
+        OpCode::new(0x2A, Mnemonic::ROL, 1, 2, AddressMode::Accumulator),
+        OpCode::new(0x26, Mnemonic::ROL, 2, 5, AddressMode::ZeroPage),
+        OpCode::new(0x36, Mnemonic::ROL, 2, 6, AddressMode::ZeroPageX),
+        OpCode::new(0x2E, Mnemonic::ROL, 3, 6, AddressMode::Absolute),
+        //// ROR
+        OpCode::new(0x6A, Mnemonic::ROR, 1, 2, AddressMode::Accumulator),
+        OpCode::new(0x66, Mnemonic::ROR, 2, 5, AddressMode::ZeroPage),
+        OpCode::new(0x76, Mnemonic::ROR, 2, 6, AddressMode::ZeroPageX),
+        OpCode::new(0x6E, Mnemonic::ROR, 3, 6, AddressMode::Absolute),
 
         // INC
         OpCode::new(0xE6, Mnemonic::INC, 2, 5, AddressMode::ZeroPage),
@@ -223,6 +249,55 @@ lazy_static! {
         OpCode::new(0xd8, Mnemonic::CLD, 1, 2, AddressMode::None),
         OpCode::new(0x58, Mnemonic::CLI, 1, 2, AddressMode::None),
         OpCode::new(0xb8, Mnemonic::CLV, 1, 2, AddressMode::None),
+
+
+        // Branches
+        OpCode::new(0x10, Mnemonic::BPL, 2, 2, AddressMode::Relative),
+        OpCode::new(0x30, Mnemonic::BMI, 2, 2, AddressMode::Relative),
+        OpCode::new(0x50, Mnemonic::BVC, 2, 2, AddressMode::Relative),
+        OpCode::new(0x70, Mnemonic::BVS, 2, 2, AddressMode::Relative),
+        OpCode::new(0x90, Mnemonic::BCC, 2, 2, AddressMode::Relative),
+        OpCode::new(0xb0, Mnemonic::BCS, 2, 2, AddressMode::Relative),
+        OpCode::new(0xd0, Mnemonic::BNE, 2, 2, AddressMode::Relative),
+        OpCode::new(0xf0, Mnemonic::BEQ, 2, 2, AddressMode::Relative),
+
+        // Arithmetic
+        //// ADC
+        OpCode::new(0x69, Mnemonic::ADC, 2, 2, AddressMode::Immediate),
+        OpCode::new(0x65, Mnemonic::ADC, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0x75, Mnemonic::ADC, 2, 4, AddressMode::ZeroPageX),
+        OpCode::new(0x6d, Mnemonic::ADC, 3, 4, AddressMode::Absolute),
+        OpCode::new(0x7d, Mnemonic::ADC, 3, 4, AddressMode::AbsoluteX),
+        OpCode::new(0x79, Mnemonic::ADC, 3, 4, AddressMode::AbsoluteY),
+        OpCode::new(0x61, Mnemonic::ADC, 2, 6, AddressMode::IndirectX),
+        OpCode::new(0x71, Mnemonic::ADC, 2, 5, AddressMode::IndirectY),
+        //// SBC
+        OpCode::new(0xe9, Mnemonic::SBC, 2, 2, AddressMode::Immediate),
+        OpCode::new(0xe5, Mnemonic::SBC, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0xf5, Mnemonic::SBC, 2, 4, AddressMode::ZeroPageX),
+        OpCode::new(0xed, Mnemonic::SBC, 3, 4, AddressMode::Absolute),
+        OpCode::new(0xfd, Mnemonic::SBC, 3, 4, AddressMode::AbsoluteX),
+        OpCode::new(0xf9, Mnemonic::SBC, 3, 4, AddressMode::AbsoluteY),
+        OpCode::new(0xe1, Mnemonic::SBC, 2, 6, AddressMode::IndirectX),
+        OpCode::new(0xf1, Mnemonic::SBC, 2, 5, AddressMode::IndirectY),
+        //// CMP
+        OpCode::new(0xc9, Mnemonic::CMP, 2, 2, AddressMode::Immediate),
+        OpCode::new(0xc5, Mnemonic::CMP, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0xd5, Mnemonic::CMP, 2, 4, AddressMode::ZeroPageX),
+        OpCode::new(0xcd, Mnemonic::CMP, 3, 4, AddressMode::Absolute),
+        OpCode::new(0xdd, Mnemonic::CMP, 3, 4, AddressMode::AbsoluteX),
+        OpCode::new(0xd9, Mnemonic::CMP, 3, 4, AddressMode::AbsoluteY),
+        OpCode::new(0xc1, Mnemonic::CMP, 2, 6, AddressMode::IndirectX),
+        OpCode::new(0xd1, Mnemonic::CMP, 2, 5, AddressMode::IndirectY),
+        //// CPX
+        OpCode::new(0xe0, Mnemonic::CPX, 2, 2, AddressMode::Immediate),
+        OpCode::new(0xe4, Mnemonic::CPX, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0xec, Mnemonic::CPX, 3, 4, AddressMode::Absolute),
+        //// CPY
+        OpCode::new(0xc0, Mnemonic::CPY, 2, 2, AddressMode::Immediate),
+        OpCode::new(0xc4, Mnemonic::CPY, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0xcc, Mnemonic::CPY, 3, 4, AddressMode::Absolute),
+
     ];
 
     pub static ref OPCODE_MAP: HashMap<u8, &'static OpCode> = OPCODES.iter().fold(HashMap::new(), |mut map, opcode| {

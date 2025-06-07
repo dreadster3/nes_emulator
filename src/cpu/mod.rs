@@ -36,7 +36,7 @@ pub struct CPU {
     stack_pointer: u8,
 
     #[derivative(Debug = "ignore")]
-    pub(super) memory: [u8; 0xFFFF],
+    memory: [u8; 0xFFFF],
 }
 
 impl Default for CPU {
@@ -165,7 +165,14 @@ impl CPU {
                 Mnemonic::EOR => self.eor(&opcode.mode),
                 Mnemonic::ORA => self.ora(&opcode.mode),
                 Mnemonic::ADC => self.adc(&opcode.mode),
+                Mnemonic::SBC => self.sbc(&opcode.mode),
+                Mnemonic::CMP => self.cmp(&opcode.mode),
+                Mnemonic::CPX => self.cpx(&opcode.mode),
+                Mnemonic::CPY => self.cpy(&opcode.mode),
                 Mnemonic::ASL => self.asl(&opcode.mode),
+                Mnemonic::LSR => self.lsr(&opcode.mode),
+                Mnemonic::ROL => self.rol(&opcode.mode),
+                Mnemonic::ROR => self.ror(&opcode.mode),
                 Mnemonic::TAX => self.tax(),
                 Mnemonic::TAY => self.tay(),
                 Mnemonic::TXA => self.txa(),
@@ -193,6 +200,14 @@ impl CPU {
                 Mnemonic::SEC => self.sec(),
                 Mnemonic::SEI => self.sei(),
                 Mnemonic::SED => self.sed(),
+                Mnemonic::BCC => self.bcc(),
+                Mnemonic::BCS => self.bcs(),
+                Mnemonic::BEQ => self.beq(),
+                Mnemonic::BMI => self.bmi(),
+                Mnemonic::BNE => self.bne(),
+                Mnemonic::BPL => self.bpl(),
+                Mnemonic::BVC => self.bvc(),
+                Mnemonic::BVS => self.bvs(),
                 Mnemonic::NOP => continue,
                 Mnemonic::BRK => break,
             }
@@ -249,27 +264,6 @@ impl CPU {
         }
     }
 
-    fn adc(&mut self, mode: &AddressMode) {
-        let operand = self.get_operand(mode);
-        let register_a = self.register_a as u16;
-        let sum = register_a + operand as u16 + self.status.contains(Status::Carry) as u16;
-
-        if sum > 0xFF {
-            self.status.insert(Status::Carry);
-        } else {
-            self.status.remove(Status::Carry);
-        }
-
-        let result = sum as u8;
-        if (result ^ operand) & (result ^ self.register_a) & 0x80 != 0 {
-            self.status.insert(Status::Overflow);
-        } else {
-            self.status.remove(Status::Overflow);
-        }
-
-        self.set_register_a(sum as u8);
-    }
-
     fn update_zero_flag(&mut self, result: u8) {
         if result == 0 {
             self.status.insert(Status::Zero);
@@ -317,8 +311,7 @@ impl CPU {
                 let address = self.mem_read_u16(base as u16);
                 address.wrapping_add(self.register_y as u16)
             }
-            AddressMode::None => unreachable!(),
-            AddressMode::Accumulator => unreachable!(),
+            _ => unreachable!(),
         }
     }
 

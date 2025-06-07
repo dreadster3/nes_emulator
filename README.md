@@ -46,10 +46,10 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 - **Arithmetic Operations**
 
   - [x] ADC (Add with Carry)
-  - [ ] SBC (Subtract with Carry)
-  - [ ] CMP (Compare Accumulator)
-  - [ ] CPX (Compare X Register)
-  - [ ] CPY (Compare Y Register)
+  - [x] SBC (Subtract with Carry)
+  - [x] CMP (Compare Accumulator)
+  - [x] CPX (Compare X Register)
+  - [x] CPY (Compare Y Register)
 
 - **Logical Operations**
 
@@ -61,9 +61,9 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 - **Shifts & Rotates**
 
   - [x] ASL (Arithmetic Shift Left)
-  - [ ] LSR (Logical Shift Right)
-  - [ ] ROL (Rotate Left)
-  - [ ] ROR (Rotate Right)
+  - [x] LSR (Logical Shift Right)
+  - [x] ROL (Rotate Left)
+  - [x] ROR (Rotate Right)
 
 - **Jumps & Calls**
 
@@ -74,14 +74,14 @@ Initially developed by following the tutorial [nes_ebook](https://bugzmanov.gith
 
 - **Branches**
 
-  - [ ] BCC (Branch if Carry Clear)
-  - [ ] BCS (Branch if Carry Set)
-  - [ ] BEQ (Branch if Equal)
-  - [ ] BMI (Branch if Minus)
-  - [ ] BNE (Branch if Not Equal)
-  - [ ] BPL (Branch if Positive)
-  - [ ] BVC (Branch if Overflow Clear)
-  - [ ] BVS (Branch if Overflow Set)
+  - [x] BCC (Branch if Carry Clear)
+  - [x] BCS (Branch if Carry Set)
+  - [x] BEQ (Branch if Equal)
+  - [x] BMI (Branch if Minus)
+  - [x] BNE (Branch if Not Equal)
+  - [x] BPL (Branch if Positive)
+  - [x] BVC (Branch if Overflow Clear)
+  - [x] BVS (Branch if Overflow Set)
 
 - **Status Flag Changes**
 
