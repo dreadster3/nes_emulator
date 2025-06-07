@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum AddressMode {
     Accumulator,
     Immediate,
@@ -17,6 +18,7 @@ pub enum AddressMode {
     None,
 }
 
+#[derive(Debug)]
 pub enum Mnemonic {
     // Load/Store
     LDA,
@@ -90,10 +92,12 @@ pub enum Mnemonic {
     SEI,
 
     // Other
+    BIT,
     BRK,
     NOP,
 }
 
+#[derive(Debug)]
 pub struct OpCode {
     pub code: u8,
     pub mnemonic: Mnemonic,
@@ -250,6 +254,9 @@ lazy_static! {
         OpCode::new(0x58, Mnemonic::CLI, 1, 2, AddressMode::None),
         OpCode::new(0xb8, Mnemonic::CLV, 1, 2, AddressMode::None),
 
+        // BIT
+        OpCode::new(0x24, Mnemonic::BIT, 2, 3, AddressMode::ZeroPage),
+        OpCode::new(0x2C, Mnemonic::BIT, 3, 4, AddressMode::Absolute),
 
         // Branches
         OpCode::new(0x10, Mnemonic::BPL, 2, 2, AddressMode::Relative),

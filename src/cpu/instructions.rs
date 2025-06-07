@@ -267,6 +267,38 @@ impl JumpOperations for CPU {
     }
 }
 
+pub(super) trait BitwiseTestOperations {
+    fn bit(&mut self, mode: &AddressMode);
+}
+
+impl BitwiseTestOperations for CPU {
+    fn bit(&mut self, mode: &AddressMode) {
+        let operand = self.get_operand(mode);
+        let result = self.register_a & operand;
+
+        // Set Zero flag based on result
+        if result == 0 {
+            self.status.insert(Status::Zero);
+        } else {
+            self.status.remove(Status::Zero);
+        }
+
+        // Set Negative flag to bit 7 of operand
+        if operand & 0x80 != 0 {
+            self.status.insert(Status::Negative);
+        } else {
+            self.status.remove(Status::Negative);
+        }
+
+        // Set Overflow flag to bit 6 of operand
+        if operand & 0x40 != 0 {
+            self.status.insert(Status::Overflow);
+        } else {
+            self.status.remove(Status::Overflow);
+        }
+    }
+}
+
 pub(super) trait StatusFlagsOperations {
     fn clc(&mut self);
     fn cli(&mut self);
@@ -339,12 +371,9 @@ pub(super) trait BranchOperations {
 
 impl BranchOperations for CPU {
     fn branch(&mut self, condition: bool) {
+        let offset = self.read_u8() as i8;
         if condition {
-            let offset = self.read_u8() as i8;
-            let address = self
-                .program_counter
-                .wrapping_add(offset as u16)
-                .wrapping_sub(1);
+            let address = self.program_counter.wrapping_add(offset as u16);
             self.program_counter = address;
         }
     }
@@ -440,7 +469,7 @@ impl ShiftOperations for CPU {
 
         match mode {
             AddressMode::Accumulator => {
-                let value = self.shift_right(self.register_a) | old_carry;
+                let value = self.shift_right(self.register_a) | (old_carry << 7);
                 self.set_register_a(value);
             }
             _ => {

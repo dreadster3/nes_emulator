@@ -75,10 +75,10 @@ impl CPU {
     }
 
     fn read_u16(&mut self) -> u16 {
-        let hi = self.read_u8();
         let lo = self.read_u8();
+        let hi = self.read_u8();
 
-        u16::from_le_bytes([hi, lo])
+        u16::from_le_bytes([lo, hi])
     }
 
     pub fn stack_push(&mut self, value: u8) {
@@ -156,6 +156,10 @@ impl CPU {
                 .get(&instruction)
                 .ok_or(CPUError::UnknownOpcode(instruction))?;
 
+            println!("opcode: {opcode:?}");
+
+            let program_counter = self.program_counter;
+
             match opcode.mnemonic {
                 Mnemonic::LDA => self.lda(&opcode.mode),
                 Mnemonic::LDX => self.ldx(&opcode.mode),
@@ -208,8 +212,13 @@ impl CPU {
                 Mnemonic::BPL => self.bpl(),
                 Mnemonic::BVC => self.bvc(),
                 Mnemonic::BVS => self.bvs(),
+                Mnemonic::BIT => self.bit(&opcode.mode),
                 Mnemonic::NOP => continue,
                 Mnemonic::BRK => break,
+            }
+
+            if program_counter == self.program_counter {
+                self.program_counter += (opcode.len - 1) as u16;
             }
         }
 
@@ -233,35 +242,9 @@ impl CPU {
         self.register_a = 0;
         self.program_counter = 0;
         self.stack_pointer = 0xFF;
-        self.status = Status::empty();
+        self.status = Status::InterruptDisable;
 
         self.program_counter = self.mem_read_u16(0xFFFC);
-    }
-
-    fn asl(&mut self, mode: &AddressMode) {
-        let shift = |this: &mut Self, value: u8| {
-            if value & 0x80 != 0 {
-                this.status.insert(Status::Carry);
-            } else {
-                this.status.remove(Status::Carry);
-            }
-
-            value << 1
-        };
-
-        match mode {
-            AddressMode::Accumulator => {
-                let value = shift(self, self.register_a);
-                self.set_register_a(value);
-            }
-            _ => {
-                let address = self.get_operand_address(mode);
-                let operand = self.mem_read_u8(address);
-                let value = shift(self, operand);
-                self.mem_write_u8(address, value);
-                self.update_zero_and_negative_flags(value);
-            }
-        }
     }
 
     fn update_zero_flag(&mut self, result: u8) {
@@ -1879,5 +1862,528 @@ mod tests {
         let address = cpu.get_operand_address(&AddressMode::Indirect);
         assert_eq!(address, 0xA000);
         assert_eq!(cpu.program_counter, 0x8002);
+    }
+
+    // SBC Tests
+    #[test]
+    fn sbc_immediate() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x50;
+        cpu.status.insert(Status::Carry); // No borrow
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.sbc(&AddressMode::Immediate);
+
+        assert_eq!(cpu.register_a, 0x20);
+        assert!(cpu.status.contains(Status::Carry)); // No borrow
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn sbc_immediate_with_borrow() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x50;
+        cpu.status.remove(Status::Carry); // Borrow
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.sbc(&AddressMode::Immediate);
+
+        assert_eq!(cpu.register_a, 0x1F);
+        assert!(cpu.status.contains(Status::Carry)); // No borrow after operation
+    }
+
+    #[test]
+    fn sbc_sets_zero_flag() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x30;
+        cpu.status.insert(Status::Carry); // No borrow
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.sbc(&AddressMode::Immediate);
+
+        assert_eq!(cpu.register_a, 0x00);
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn sbc_sets_negative_flag() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x30;
+        cpu.status.insert(Status::Carry); // No borrow
+        cpu.mem_write_u8(0x8000, 0x40); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.sbc(&AddressMode::Immediate);
+
+        assert_eq!(cpu.register_a, 0xF0);
+        assert!(!cpu.status.contains(Status::Carry)); // Borrow occurred
+        assert!(cpu.status.contains(Status::Negative));
+    }
+
+    // CMP Tests
+    #[test]
+    fn cmp_immediate_equal() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x30;
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cmp(&AddressMode::Immediate);
+
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn cmp_immediate_greater() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x50;
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cmp(&AddressMode::Immediate);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn cmp_immediate_less() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x30;
+        cpu.mem_write_u8(0x8000, 0x50); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cmp(&AddressMode::Immediate);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Carry));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn cmp_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x50;
+        cpu.mem_write_u8(0x05, 0x30); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cmp(&AddressMode::ZeroPage);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    // CPX Tests
+    #[test]
+    fn cpx_immediate_equal() {
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x30;
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cpx(&AddressMode::Immediate);
+
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn cpx_immediate_greater() {
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x50;
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cpx(&AddressMode::Immediate);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn cpx_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.register_x = 0x50;
+        cpu.mem_write_u8(0x05, 0x30); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cpx(&AddressMode::ZeroPage);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    // CPY Tests
+    #[test]
+    fn cpy_immediate_equal() {
+        let mut cpu = CPU::new();
+        cpu.register_y = 0x30;
+        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cpy(&AddressMode::Immediate);
+
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn cpy_immediate_less() {
+        let mut cpu = CPU::new();
+        cpu.register_y = 0x30;
+        cpu.mem_write_u8(0x8000, 0x50); // Immediate value at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.cpy(&AddressMode::Immediate);
+
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Carry));
+    }
+
+    // LSR Tests
+    #[test]
+    fn lsr_accumulator() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x02;
+
+        cpu.lsr(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x01);
+        assert!(!cpu.status.contains(Status::Carry));
+        assert!(!cpu.status.contains(Status::Zero));
+        assert!(!cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn lsr_accumulator_sets_carry() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x03; // 00000011
+
+        cpu.lsr(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x01);
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn lsr_accumulator_sets_zero() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x01;
+
+        cpu.lsr(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x00);
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn lsr_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0x02); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.lsr(&AddressMode::ZeroPage);
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x01);
+        assert!(!cpu.status.contains(Status::Carry));
+        assert!(!cpu.status.contains(Status::Zero));
+    }
+
+    // ROL Tests
+    #[test]
+    fn rol_accumulator() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x01;
+        cpu.status.insert(Status::Carry);
+
+        cpu.rol(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x03); // 0x01 << 1 | 1
+        assert!(!cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn rol_accumulator_sets_carry() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x81; // 10000001
+
+        cpu.rol(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x02);
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn rol_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Carry);
+
+        cpu.rol(&AddressMode::ZeroPage);
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x03);
+        assert!(!cpu.status.contains(Status::Carry));
+    }
+
+    // ROR Tests
+    #[test]
+    fn ror_accumulator() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x02;
+        cpu.status.insert(Status::Carry);
+
+        cpu.ror(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x81); // 0x02 >> 1 | (1 << 7)
+        assert!(!cpu.status.contains(Status::Carry));
+        assert!(cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn ror_accumulator_sets_carry() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x03; // 00000011
+
+        cpu.ror(&AddressMode::Accumulator);
+
+        assert_eq!(cpu.register_a, 0x01);
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn ror_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x10, 0x02); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Carry);
+
+        cpu.ror(&AddressMode::ZeroPage);
+
+        assert_eq!(cpu.mem_read_u8(0x10), 0x81);
+        assert!(!cpu.status.contains(Status::Carry));
+    }
+
+    // Branch Tests
+    #[test]
+    fn bcc_takes_branch_when_carry_clear() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.remove(Status::Carry);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bcc();
+
+        assert_eq!(cpu.program_counter, 0x8006); // 0x8000 + 5 + 1 (auto increment)
+    }
+
+    #[test]
+    fn bcc_no_branch_when_carry_set() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Carry);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bcc();
+
+        assert_eq!(cpu.program_counter, 0x8001); // Only incremented by read_u8
+    }
+
+    #[test]
+    fn bcs_takes_branch_when_carry_set() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Carry);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bcs();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn beq_takes_branch_when_zero_set() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Zero);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.beq();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn bne_takes_branch_when_zero_clear() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.remove(Status::Zero);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bne();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn bmi_takes_branch_when_negative_set() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Negative);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bmi();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn bpl_takes_branch_when_negative_clear() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.remove(Status::Negative);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bpl();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn bvc_takes_branch_when_overflow_clear() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.remove(Status::Overflow);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bvc();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn bvs_takes_branch_when_overflow_set() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Overflow);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.bvs();
+
+        assert_eq!(cpu.program_counter, 0x8006);
+    }
+
+    #[test]
+    fn branch_backwards() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.insert(Status::Zero);
+        cpu.mem_write_u8(0x8000, 0xFB); // -5 in two's complement
+
+        cpu.beq();
+
+        assert_eq!(cpu.program_counter, 0x7FFC); // 0x8000 + (-5) + 1
+    }
+
+    #[test]
+    fn branch_no_condition() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.status.remove(Status::Zero);
+        cpu.mem_write_u8(0x8000, 0x05); // Offset
+
+        cpu.beq();
+
+        assert_eq!(cpu.program_counter, 0x8001); // Only incremented by read_u8
+    }
+
+    // BIT Tests
+    #[test]
+    fn bit_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x05, 0xF0); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.bit(&AddressMode::ZeroPage);
+
+        assert!(!cpu.status.contains(Status::Zero)); // F0 & F0 = F0 != 0
+        assert!(cpu.status.contains(Status::Negative)); // Bit 7 of operand is set
+        assert!(cpu.status.contains(Status::Overflow)); // Bit 6 of operand is set
+    }
+
+    #[test]
+    fn bit_zeropage_sets_zero() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0x0F;
+        cpu.mem_write_u8(0x05, 0xF0); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.bit(&AddressMode::ZeroPage);
+
+        assert!(cpu.status.contains(Status::Zero)); // 0F & F0 = 00
+        assert!(cpu.status.contains(Status::Negative)); // Bit 7 of operand is set
+        assert!(cpu.status.contains(Status::Overflow)); // Bit 6 of operand is set
+    }
+
+    #[test]
+    fn bit_clears_flags() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0xFF;
+        cpu.mem_write_u8(0x05, 0x3F); // Value at address 0x05 (bits 7,6 clear)
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.bit(&AddressMode::ZeroPage);
+
+        assert!(!cpu.status.contains(Status::Zero)); // FF & 3F = 3F != 0
+        assert!(!cpu.status.contains(Status::Negative)); // Bit 7 of operand is clear
+        assert!(!cpu.status.contains(Status::Overflow)); // Bit 6 of operand is clear
+    }
+
+    #[test]
+    fn jmp_absolute_test() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x8000, 0x34); // Low byte of target address
+        cpu.mem_write_u8(0x8001, 0x12); // High byte of target address
+
+        cpu.jmp(&AddressMode::Absolute);
+
+        assert_eq!(cpu.program_counter, 0x1234);
+    }
+
+    #[test]
+    fn jmp_game_scenario() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x06bf;
+        cpu.mem_write_u8(0x06bf, 0x4c); // JMP instruction
+        cpu.mem_write_u8(0x06c0, 0x35); // Low byte of target address
+        cpu.mem_write_u8(0x06c1, 0x07); // High byte of target address
+
+        // Simulate the instruction read that happens in run loop
+        let instruction = cpu.read_u8(); // This should read 0x4c and set PC to 0x06c0
+        assert_eq!(instruction, 0x4c);
+        assert_eq!(cpu.program_counter, 0x06c0);
+
+        cpu.jmp(&AddressMode::Absolute);
+
+        assert_eq!(cpu.program_counter, 0x0735);
     }
 }
