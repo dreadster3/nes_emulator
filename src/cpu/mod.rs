@@ -156,8 +156,6 @@ impl CPU {
                 .get(&instruction)
                 .ok_or(CPUError::UnknownOpcode(instruction))?;
 
-            println!("opcode: {opcode:?}");
-
             let program_counter = self.program_counter;
 
             match opcode.mnemonic {

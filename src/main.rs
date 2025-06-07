@@ -127,19 +127,6 @@ fn main() {
     let mut rng = rand::rng();
 
     let result = cpu.run_with_callback(move |cpu| {
-        println!();
-        println!("{cpu:?}");
-        for i in 0..10 {
-            let addr = cpu.program_counter.saturating_sub(5).saturating_add(i);
-            let val = cpu.mem_read_u8(addr);
-            let marker = if addr == cpu.program_counter {
-                " <-- PC"
-            } else {
-                ""
-            };
-            println!("  0x{addr:04x}: 0x{val:02x}{marker}");
-        }
-
         handle_user_input(cpu, &mut event_pump);
 
         cpu.mem_write_u8(0xfe, rng.random_range(1..=16));

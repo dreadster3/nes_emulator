@@ -10,7 +10,7 @@
     };
   };
 
-  outputs = inputs@{ fenix, flake-parts, ... }:
+  outputs = inputs@{ self, fenix, flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         # To import a flake module
@@ -31,6 +31,11 @@
             "rustfmt"
             "llvm-tools-preview"
           ];
+
+          # Get the current git revision
+          version = self.rev or self.dirtyRev;
+
+          sdl_libs = with pkgs; [ SDL2 SDL2_image SDL2_mixer SDL2_ttf ];
         in {
           # Per-system attributes can be defined here. The self' and inputs'
           # module parameters provide easy access to attributes of the same
@@ -42,12 +47,27 @@
           };
 
           # Equivalent to  inputs'.nixpkgs.legacyPackages.hello;
-          packages.default = pkgs.hello;
+          packages.default = pkgs.rustPlatform.buildRustPackage {
+            pname = "nes_emulator";
+            inherit version;
+            src = ./.;
+
+            buildInputs = sdl_libs;
+
+            cargoLock = { lockFile = ./Cargo.lock; };
+
+            meta = with pkgs.lib; {
+              description = "A nes emulator written in rust";
+              homepage = "https://github.com/dreadster3/nes_emulator";
+              license = licenses.unlicense;
+              maintainers = [ maintainers.tailhook ];
+            };
+          };
 
           # Dev shells
           devShells.default = pkgs.mkShell {
-            buildInputs = with pkgs; [ rust grcov SDL2 ];
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [ SDL2 ]);
+            buildInputs = with pkgs; [ rust grcov ] ++ sdl_libs;
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath sdl_libs;
           };
         };
       flake = {
