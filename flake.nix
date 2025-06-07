@@ -56,11 +56,16 @@
 
             cargoLock = { lockFile = ./Cargo.lock; };
 
+            preBuild = ''
+              substituteInPlace src/main.rs \
+                --replace '"snake.nes"' '"${./snake.nes}"'
+            '';
+
             meta = with pkgs.lib; {
               description = "A nes emulator written in rust";
               homepage = "https://github.com/dreadster3/nes_emulator";
               license = licenses.unlicense;
-              maintainers = [ maintainers.tailhook ];
+              maintainers = [ ];
             };
           };
 

@@ -1,4 +1,4 @@
-use crate::opcodes::AddressMode;
+use super::opcodes::AddressMode;
 
 use super::{CPU, Status, memory::Memory};
 

@@ -1,11 +1,13 @@
 mod instructions;
 pub mod memory;
+mod opcodes;
 
+use crate::bus::Bus;
 use bitflags::bitflags;
 use derivative::Derivative;
 use thiserror::Error;
 
-use crate::opcodes::{AddressMode, Mnemonic, OPCODE_MAP};
+use opcodes::{AddressMode, Mnemonic, OPCODE_MAP};
 
 use instructions::*;
 use memory::Memory;
@@ -26,23 +28,16 @@ bitflags! {
 const STACK_BASE: u16 = 0x0100;
 
 #[derive(Derivative)]
-#[derivative(Debug)]
+#[derivative(Debug, Default)]
 pub struct CPU {
     register_a: u8,
     register_x: u8,
     register_y: u8,
     pub status: Status,
     pub program_counter: u16,
+    #[derivative(Default(value = "0xFF"))]
     stack_pointer: u8,
-
-    #[derivative(Debug = "ignore")]
-    memory: [u8; 0xFFFF],
-}
-
-impl Default for CPU {
-    fn default() -> Self {
-        Self::new()
-    }
+    bus: Bus,
 }
 
 #[derive(Error, Debug)]
@@ -55,7 +50,7 @@ pub enum CPUError {
 }
 
 impl CPU {
-    pub fn new() -> Self {
+    pub fn new(bus: Bus) -> Self {
         CPU {
             register_a: 0,
             register_x: 0,
@@ -63,7 +58,7 @@ impl CPU {
             status: Status::empty(),
             program_counter: 0,
             stack_pointer: 0xFF,
-            memory: [0; 0xFFFF],
+            bus,
         }
     }
 
@@ -223,18 +218,6 @@ impl CPU {
         Ok(())
     }
 
-    pub fn load_and_run(&mut self, program: Vec<u8>) -> Result<(), CPUError> {
-        self.load(program);
-        self.reset();
-        self.run()
-    }
-
-    pub fn load(&mut self, program: Vec<u8>) {
-        let start = 0x0600;
-        self.memory[start..start + program.len()].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, start as u16);
-    }
-
     pub fn reset(&mut self) {
         self.register_x = 0;
         self.register_a = 0;
@@ -314,7 +297,7 @@ mod tests {
     // ASL Tests
     #[test]
     fn asl_accumulator() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x01;
 
         cpu.asl(&AddressMode::Accumulator);
@@ -325,7 +308,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x81; // 10000001
 
         cpu.asl(&AddressMode::Accumulator);
@@ -336,7 +319,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_zero() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x00;
 
         cpu.asl(&AddressMode::Accumulator);
@@ -347,7 +330,7 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_negative() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x40; // Shift to get 10000000
 
         cpu.asl(&AddressMode::Accumulator);
@@ -358,10 +341,10 @@ mod tests {
 
     #[test]
     fn asl_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.asl(&AddressMode::ZeroPage);
 
@@ -371,11 +354,11 @@ mod tests {
 
     #[test]
     fn asl_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.mem_write_u8(0x15, 0x01); // Value at address 0x15 (0x10 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.asl(&AddressMode::ZeroPageX);
 
@@ -385,49 +368,49 @@ mod tests {
 
     #[test]
     fn asl_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x01); // Value at address 0x2000
-        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0200, 0x01); // Value at address 0x2000
+        cpu.mem_write_u16(0x0800, 0x0200); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.asl(&AddressMode::Absolute);
 
-        assert_eq!(cpu.mem_read_u8(0x2000), 0x02);
+        assert_eq!(cpu.mem_read_u8(0x0200), 0x02);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn asl_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x01); // Value at address 0x2005 (0x2000 + 0x05)
-        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0205, 0x01); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x0800, 0x0200); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.asl(&AddressMode::AbsoluteX);
 
-        assert_eq!(cpu.mem_read_u8(0x2005), 0x02);
+        assert_eq!(cpu.mem_read_u8(0x0205), 0x02);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn asl_absolute_sets_carry_and_zero() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x80); // 10000000 -> 00000000 with carry
-        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0200, 0x80); // 10000000 -> 00000000 with carry
+        cpu.mem_write_u16(0x0800, 0x0200); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.asl(&AddressMode::Absolute);
 
-        assert_eq!(cpu.mem_read_u8(0x2000), 0x00);
+        assert_eq!(cpu.mem_read_u8(0x0200), 0x00);
         assert_eq!(cpu.status, Status::Carry | Status::Zero);
     }
 
     #[test]
     fn lda_immediate() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0800, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::Immediate);
 
@@ -437,9 +420,9 @@ mod tests {
 
     #[test]
     fn lda_immediate_zero() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x8000, 0x00); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0800, 0x00); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::Immediate);
 
@@ -449,10 +432,10 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::ZeroPage);
 
@@ -462,11 +445,11 @@ mod tests {
 
     #[test]
     fn lda_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::ZeroPageX);
 
@@ -476,10 +459,10 @@ mod tests {
 
     #[test]
     fn lda_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0205, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::Absolute);
 
@@ -489,11 +472,11 @@ mod tests {
 
     #[test]
     fn lda_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::AbsoluteX);
 
@@ -503,11 +486,11 @@ mod tests {
 
     #[test]
     fn lda_absolute_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::AbsoluteY);
 
@@ -517,13 +500,13 @@ mod tests {
 
     #[test]
     fn lda_indirect_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
-        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
-        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x07, 0x01); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x0120, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::IndirectX);
 
@@ -533,12 +516,12 @@ mod tests {
 
     #[test]
     fn lda_indirect_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
         cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lda(&AddressMode::IndirectY);
 
@@ -548,9 +531,9 @@ mod tests {
 
     #[test]
     fn ldx_immediate() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0800, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldx(&AddressMode::Immediate);
 
@@ -560,10 +543,10 @@ mod tests {
 
     #[test]
     fn ldx_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldx(&AddressMode::ZeroPage);
 
@@ -573,11 +556,11 @@ mod tests {
 
     #[test]
     fn ldx_zeropage_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x05;
         cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldx(&AddressMode::ZeroPageY);
 
@@ -587,10 +570,10 @@ mod tests {
 
     #[test]
     fn ldx_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0205, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldx(&AddressMode::Absolute);
 
@@ -600,11 +583,11 @@ mod tests {
 
     #[test]
     fn ldx_absolute_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldx(&AddressMode::AbsoluteY);
 
@@ -614,9 +597,9 @@ mod tests {
 
     #[test]
     fn ldy_immediate() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0800, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldy(&AddressMode::Immediate);
 
@@ -626,10 +609,10 @@ mod tests {
 
     #[test]
     fn ldy_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldy(&AddressMode::ZeroPage);
 
@@ -639,11 +622,11 @@ mod tests {
 
     #[test]
     fn ldy_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldy(&AddressMode::ZeroPageX);
 
@@ -653,10 +636,10 @@ mod tests {
 
     #[test]
     fn ldy_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0205, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldy(&AddressMode::Absolute);
 
@@ -666,11 +649,11 @@ mod tests {
 
     #[test]
     fn ldy_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ldy(&AddressMode::AbsoluteX);
 
@@ -680,10 +663,10 @@ mod tests {
 
     #[test]
     fn and_immediate() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::Immediate);
 
@@ -693,11 +676,11 @@ mod tests {
 
     #[test]
     fn and_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::ZeroPage);
 
@@ -707,12 +690,12 @@ mod tests {
 
     #[test]
     fn and_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::ZeroPageX);
 
@@ -722,11 +705,11 @@ mod tests {
 
     #[test]
     fn and_absolute() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0205, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::Absolute);
 
@@ -736,12 +719,12 @@ mod tests {
 
     #[test]
     fn and_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::AbsoluteX);
 
@@ -751,12 +734,12 @@ mod tests {
 
     #[test]
     fn and_absolute_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::AbsoluteY);
 
@@ -766,14 +749,14 @@ mod tests {
 
     #[test]
     fn and_indirect_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
-        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
-        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x07, 0x01); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x0120, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::IndirectX);
 
@@ -783,13 +766,13 @@ mod tests {
 
     #[test]
     fn and_indirect_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
-        cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x05, 0x0120); // Base target address stored at 0x05
+        cpu.mem_write_u8(0x0121, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.and(&AddressMode::IndirectY);
 
@@ -799,10 +782,10 @@ mod tests {
 
     #[test]
     fn adc_immediate() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::Immediate);
 
@@ -812,11 +795,11 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x05;
         cpu.status.insert(Status::Carry);
-        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::Immediate);
 
@@ -826,10 +809,10 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_overflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x50;
-        cpu.mem_write_u8(0x8000, 0x70); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x70); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::Immediate);
 
@@ -839,10 +822,10 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x01;
-        cpu.mem_write_u8(0x8000, 0xFF); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0xFF); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::Immediate);
 
@@ -852,11 +835,11 @@ mod tests {
 
     #[test]
     fn adc_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x05;
         cpu.mem_write_u8(0x05, 0x10); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::ZeroPage);
 
@@ -866,12 +849,12 @@ mod tests {
 
     #[test]
     fn adc_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.register_a = 0x05;
         cpu.mem_write_u8(0x0A, 0x10); // Value at address 0x0A (0x05 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::ZeroPageX);
 
@@ -881,11 +864,11 @@ mod tests {
 
     #[test]
     fn adc_absolute() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x2005, 0x10); // Value at address 0x2005
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0205, 0x10); // Value at address 0x2005
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::Absolute);
 
@@ -895,12 +878,12 @@ mod tests {
 
     #[test]
     fn adc_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x2006, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::AbsoluteX);
 
@@ -910,12 +893,12 @@ mod tests {
 
     #[test]
     fn adc_absolute_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x2006, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0206, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::AbsoluteY);
 
@@ -925,14 +908,14 @@ mod tests {
 
     #[test]
     fn adc_indirect_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0x05;
         cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
-        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
-        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x07, 0x01); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x0120, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::IndirectX);
 
@@ -942,13 +925,13 @@ mod tests {
 
     #[test]
     fn adc_indirect_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0x05;
-        cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
-        cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x05, 0x0120); // Base target address stored at 0x05
+        cpu.mem_write_u8(0x0121, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.adc(&AddressMode::IndirectY);
 
@@ -958,10 +941,10 @@ mod tests {
 
     #[test]
     fn sta_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x20;
-        cpu.mem_write_u8(0x8000, 0x12); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x12); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::ZeroPage);
 
@@ -971,11 +954,11 @@ mod tests {
 
     #[test]
     fn sta_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.register_a = 0x20;
-        cpu.mem_write_u8(0x8000, 0x12); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x12); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::ZeroPageX);
 
@@ -985,78 +968,78 @@ mod tests {
 
     #[test]
     fn sta_absolute() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x0800, 0x0205); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::Absolute);
 
-        assert_eq!(cpu.mem_read_u8(0x2005), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x0205), 0x20);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::AbsoluteX);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
+        assert_eq!(cpu.mem_read_u8(0x0206), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_absolute_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x0800, 0x0205); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::AbsoluteY);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
+        assert_eq!(cpu.mem_read_u8(0x0206), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_indirect_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x06, 0x2006); // Target address at 0x06 (0x05 + 0x01)
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x06, 0x0206); // Target address at 0x06 (0x05 + 0x01)
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::IndirectX);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x0206), 0x20);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_indirect_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x05, 0x2005); // Base target address at 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x05, 0x0205); // Base target address at 0x05
+        cpu.mem_write_u8(0x0800, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sta(&AddressMode::IndirectY);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
+        assert_eq!(cpu.mem_read_u8(0x0206), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn tax() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 10;
 
         cpu.tax();
@@ -1067,7 +1050,7 @@ mod tests {
 
     #[test]
     fn tax_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0;
 
         cpu.tax();
@@ -1078,7 +1061,7 @@ mod tests {
 
     #[test]
     fn tax_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x80;
 
         cpu.tax();
@@ -1089,7 +1072,7 @@ mod tests {
 
     #[test]
     fn tay() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 10;
 
         cpu.tay();
@@ -1100,7 +1083,7 @@ mod tests {
 
     #[test]
     fn tay_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0;
 
         cpu.tay();
@@ -1111,7 +1094,7 @@ mod tests {
 
     #[test]
     fn tay_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x80;
 
         cpu.tay();
@@ -1122,7 +1105,7 @@ mod tests {
 
     #[test]
     fn txa() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 10;
 
         cpu.txa();
@@ -1133,7 +1116,7 @@ mod tests {
 
     #[test]
     fn txa_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0;
 
         cpu.txa();
@@ -1144,7 +1127,7 @@ mod tests {
 
     #[test]
     fn txa_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x80;
 
         cpu.txa();
@@ -1155,7 +1138,7 @@ mod tests {
 
     #[test]
     fn tya() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 10;
 
         cpu.tya();
@@ -1166,7 +1149,7 @@ mod tests {
 
     #[test]
     fn tya_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0;
 
         cpu.tya();
@@ -1177,7 +1160,7 @@ mod tests {
 
     #[test]
     fn tya_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x80;
 
         cpu.tya();
@@ -1188,7 +1171,7 @@ mod tests {
 
     #[test]
     fn inx() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 5;
 
         cpu.inx();
@@ -1199,7 +1182,7 @@ mod tests {
 
     #[test]
     fn inx_overflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0xff;
 
         cpu.inx();
@@ -1209,7 +1192,7 @@ mod tests {
     }
     #[test]
     fn iny() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 5;
 
         cpu.iny();
@@ -1220,7 +1203,7 @@ mod tests {
 
     #[test]
     fn iny_overflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0xff;
 
         cpu.iny();
@@ -1231,10 +1214,10 @@ mod tests {
 
     #[test]
     fn inc_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x05); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::ZeroPage);
 
@@ -1244,11 +1227,11 @@ mod tests {
 
     #[test]
     fn inc_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.mem_write_u8(0x15, 0x05); // Value at address 0x15 (0x10 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::ZeroPageX);
 
@@ -1258,37 +1241,37 @@ mod tests {
 
     #[test]
     fn inc_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x05); // Value at address 0x2000
-        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0200, 0x05); // Value at address 0x2000
+        cpu.mem_write_u16(0x0800, 0x0200); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::Absolute);
 
-        assert_eq!(cpu.mem_read_u8(0x2000), 0x06);
+        assert_eq!(cpu.mem_read_u8(0x0200), 0x06);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn inc_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
-        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0205, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x0800, 0x0200); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::AbsoluteX);
 
-        assert_eq!(cpu.mem_read_u8(0x2005), 0x06);
+        assert_eq!(cpu.mem_read_u8(0x0205), 0x06);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn inc_overflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0xFF); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::ZeroPage);
 
@@ -1298,10 +1281,10 @@ mod tests {
 
     #[test]
     fn inc_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x7F); // 127 -> 128 (0x80)
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.inc(&AddressMode::ZeroPage);
 
@@ -1311,7 +1294,7 @@ mod tests {
 
     #[test]
     fn dex_decrements_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
 
         cpu.dex();
@@ -1323,7 +1306,7 @@ mod tests {
 
     #[test]
     fn dex_sets_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x01;
 
         cpu.dex();
@@ -1335,7 +1318,7 @@ mod tests {
 
     #[test]
     fn dex_sets_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x00;
 
         cpu.dex();
@@ -1347,7 +1330,7 @@ mod tests {
 
     #[test]
     fn dey_decrements_y() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x05;
 
         cpu.dey();
@@ -1359,7 +1342,7 @@ mod tests {
 
     #[test]
     fn dey_sets_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x01;
 
         cpu.dey();
@@ -1371,7 +1354,7 @@ mod tests {
 
     #[test]
     fn dey_sets_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x00;
 
         cpu.dey();
@@ -1383,10 +1366,10 @@ mod tests {
 
     #[test]
     fn dec_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x05); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::ZeroPage);
 
@@ -1396,11 +1379,11 @@ mod tests {
 
     #[test]
     fn dec_zeropage_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
         cpu.mem_write_u8(0x15, 0x05); // Value at address 0x15 (0x10 + 0x05)
-        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::ZeroPageX);
 
@@ -1410,37 +1393,37 @@ mod tests {
 
     #[test]
     fn dec_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x05); // Value at address 0x2000
-        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u8(0x0200, 0x05); // Value at address 0x2000
+        cpu.mem_write_u16(0x0800, 0x0200); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::Absolute);
 
-        assert_eq!(cpu.mem_read_u8(0x2000), 0x04);
+        assert_eq!(cpu.mem_read_u8(0x0200), 0x04);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn dec_absolute_x() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
-        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0205, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x0800, 0x0200); // Base address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::AbsoluteX);
 
-        assert_eq!(cpu.mem_read_u8(0x2005), 0x04);
+        assert_eq!(cpu.mem_read_u8(0x0205), 0x04);
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn dec_underflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x00); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::ZeroPage);
 
@@ -1450,10 +1433,10 @@ mod tests {
 
     #[test]
     fn dec_sets_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::ZeroPage);
 
@@ -1463,10 +1446,10 @@ mod tests {
 
     #[test]
     fn dec_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x81); // 129 -> 128 (0x80)
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.dec(&AddressMode::ZeroPage);
 
@@ -1476,7 +1459,7 @@ mod tests {
 
     #[test]
     fn tsx() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0x50;
 
         cpu.tsx();
@@ -1487,7 +1470,7 @@ mod tests {
 
     #[test]
     fn tsx_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0x00;
 
         cpu.tsx();
@@ -1498,7 +1481,7 @@ mod tests {
 
     #[test]
     fn tsx_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0x80;
 
         cpu.tsx();
@@ -1509,7 +1492,7 @@ mod tests {
 
     #[test]
     fn txs() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x50;
 
         cpu.txs();
@@ -1520,7 +1503,7 @@ mod tests {
 
     #[test]
     fn txs_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x00;
 
         cpu.txs();
@@ -1531,7 +1514,7 @@ mod tests {
 
     #[test]
     fn txs_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x80;
 
         cpu.txs();
@@ -1542,7 +1525,7 @@ mod tests {
 
     #[test]
     fn pha() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x42;
 
         cpu.pha();
@@ -1553,7 +1536,7 @@ mod tests {
 
     #[test]
     fn pla() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x42);
 
@@ -1566,7 +1549,7 @@ mod tests {
 
     #[test]
     fn pla_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x00);
 
@@ -1578,7 +1561,7 @@ mod tests {
 
     #[test]
     fn pla_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x80);
 
@@ -1590,7 +1573,7 @@ mod tests {
 
     #[test]
     fn php() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status = Status::Carry | Status::Zero;
 
         cpu.php();
@@ -1604,7 +1587,7 @@ mod tests {
 
     #[test]
     fn plp() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, (Status::Carry | Status::Zero).bits());
 
@@ -1616,10 +1599,10 @@ mod tests {
 
     #[test]
     fn eor_immediate() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x8000, 0x0F); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x0F); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.eor(&AddressMode::Immediate);
 
@@ -1629,10 +1612,10 @@ mod tests {
 
     #[test]
     fn eor_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xFF;
-        cpu.mem_write_u8(0x8000, 0xFF); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0xFF); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.eor(&AddressMode::Immediate);
 
@@ -1642,11 +1625,11 @@ mod tests {
 
     #[test]
     fn eor_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x05, 0x0F); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.eor(&AddressMode::ZeroPage);
 
@@ -1656,10 +1639,10 @@ mod tests {
 
     #[test]
     fn ora_immediate() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x8000, 0x0F); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x0F); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ora(&AddressMode::Immediate);
 
@@ -1669,10 +1652,10 @@ mod tests {
 
     #[test]
     fn ora_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x00;
-        cpu.mem_write_u8(0x8000, 0x00); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x00); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ora(&AddressMode::Immediate);
 
@@ -1682,11 +1665,11 @@ mod tests {
 
     #[test]
     fn ora_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x05, 0x0F); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.ora(&AddressMode::ZeroPage);
 
@@ -1697,9 +1680,9 @@ mod tests {
     // Jump Operations Tests
     #[test]
     fn jmp_absolute() {
-        let mut cpu = CPU::new();
-        cpu.mem_write_u16(0x8000, 0x1234); // Target address at PC
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.mem_write_u16(0x0800, 0x1234); // Target address at PC
+        cpu.program_counter = 0x0800;
 
         cpu.jmp(&AddressMode::Absolute);
 
@@ -1708,10 +1691,10 @@ mod tests {
 
     #[test]
     fn jmp_indirect() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u16(0x1234, 0x5678); // Target address stored at 0x1234
-        cpu.mem_write_u16(0x8000, 0x1234); // Pointer address at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x0800, 0x1234); // Pointer address at PC
+        cpu.program_counter = 0x0800;
 
         cpu.jmp(&AddressMode::Indirect);
 
@@ -1720,9 +1703,9 @@ mod tests {
 
     #[test]
     fn jsr_pushes_return_address() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
-        cpu.mem_write_u16(0x8000, 0x1234); // Target address at PC
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
+        cpu.mem_write_u16(0x0800, 0x1234); // Target address at PC
 
         cpu.jsr(&AddressMode::Absolute);
 
@@ -1731,12 +1714,12 @@ mod tests {
 
         // Check that return address - 1 was pushed to stack
         let return_addr = cpu.stack_pop_u16();
-        assert_eq!(return_addr, 0x8001); // PC + 2 - 1 = 0x8000 + 2 - 1
+        assert_eq!(return_addr, 0x0801); // PC + 2 - 1 = 0x0800 + 2 - 1
     }
 
     #[test]
     fn rts_returns_to_caller() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_push_u16(0x1234);
 
         cpu.rts();
@@ -1747,7 +1730,7 @@ mod tests {
 
     #[test]
     fn rti_restores_status_and_pc() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.stack_push_u16(0x1234); // PC pushed first
         cpu.stack_push(0b10010001); // Status pushed second (will be popped first)
 
@@ -1760,20 +1743,20 @@ mod tests {
 
     #[test]
     fn jsr_rts_sequence() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.stack_pointer = 0xFF;
 
-        cpu.stack_push_u16(0x8002);
+        cpu.stack_push_u16(0x0802);
         cpu.rts();
-        assert_eq!(cpu.program_counter, 0x8003);
+        assert_eq!(cpu.program_counter, 0x0803);
         assert_eq!(cpu.stack_pointer, 0xFF);
     }
 
     // Status Flag Operations Tests
     #[test]
     fn clc_clears_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status.insert(Status::Carry);
 
         cpu.clc();
@@ -1783,7 +1766,7 @@ mod tests {
 
     #[test]
     fn sec_sets_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
 
         cpu.sec();
 
@@ -1792,7 +1775,7 @@ mod tests {
 
     #[test]
     fn cli_clears_interrupt_disable() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status.insert(Status::InterruptDisable);
 
         cpu.cli();
@@ -1802,7 +1785,7 @@ mod tests {
 
     #[test]
     fn sei_sets_interrupt_disable() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
 
         cpu.sei();
 
@@ -1811,7 +1794,7 @@ mod tests {
 
     #[test]
     fn cld_clears_decimal() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status.insert(Status::Decimal);
 
         cpu.cld();
@@ -1821,7 +1804,7 @@ mod tests {
 
     #[test]
     fn sed_sets_decimal() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
 
         cpu.sed();
 
@@ -1830,7 +1813,7 @@ mod tests {
 
     #[test]
     fn clv_clears_overflow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status.insert(Status::Overflow);
 
         cpu.clv();
@@ -1840,7 +1823,7 @@ mod tests {
 
     #[test]
     fn flag_operations_dont_affect_other_flags() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.status = Status::Carry | Status::Zero | Status::Negative;
 
         cpu.clc();
@@ -1852,24 +1835,24 @@ mod tests {
 
     #[test]
     fn indirect_addressing_mode() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
-        cpu.mem_write_u16(0x8000, 0x9000); // Pointer address at PC
-        cpu.mem_write_u16(0x9000, 0xA000); // Target address at pointer location
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
+        cpu.mem_write_u16(0x0800, 0x0900); // Pointer address at PC
+        cpu.mem_write_u16(0x0900, 0x0A00); // Target address at pointer location
 
         let address = cpu.get_operand_address(&AddressMode::Indirect);
-        assert_eq!(address, 0xA000);
-        assert_eq!(cpu.program_counter, 0x8002);
+        assert_eq!(address, 0x0A00);
+        assert_eq!(cpu.program_counter, 0x0802);
     }
 
     // SBC Tests
     #[test]
     fn sbc_immediate() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x50;
         cpu.status.insert(Status::Carry); // No borrow
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sbc(&AddressMode::Immediate);
 
@@ -1881,11 +1864,11 @@ mod tests {
 
     #[test]
     fn sbc_immediate_with_borrow() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x50;
         cpu.status.remove(Status::Carry); // Borrow
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sbc(&AddressMode::Immediate);
 
@@ -1895,11 +1878,11 @@ mod tests {
 
     #[test]
     fn sbc_sets_zero_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x30;
         cpu.status.insert(Status::Carry); // No borrow
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sbc(&AddressMode::Immediate);
 
@@ -1910,11 +1893,11 @@ mod tests {
 
     #[test]
     fn sbc_sets_negative_flag() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x30;
         cpu.status.insert(Status::Carry); // No borrow
-        cpu.mem_write_u8(0x8000, 0x40); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x40); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.sbc(&AddressMode::Immediate);
 
@@ -1926,10 +1909,10 @@ mod tests {
     // CMP Tests
     #[test]
     fn cmp_immediate_equal() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x30;
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cmp(&AddressMode::Immediate);
 
@@ -1940,10 +1923,10 @@ mod tests {
 
     #[test]
     fn cmp_immediate_greater() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x50;
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cmp(&AddressMode::Immediate);
 
@@ -1954,10 +1937,10 @@ mod tests {
 
     #[test]
     fn cmp_immediate_less() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x30;
-        cpu.mem_write_u8(0x8000, 0x50); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x50); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cmp(&AddressMode::Immediate);
 
@@ -1968,11 +1951,11 @@ mod tests {
 
     #[test]
     fn cmp_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x50;
         cpu.mem_write_u8(0x05, 0x30); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cmp(&AddressMode::ZeroPage);
 
@@ -1983,10 +1966,10 @@ mod tests {
     // CPX Tests
     #[test]
     fn cpx_immediate_equal() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x30;
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cpx(&AddressMode::Immediate);
 
@@ -1996,10 +1979,10 @@ mod tests {
 
     #[test]
     fn cpx_immediate_greater() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x50;
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cpx(&AddressMode::Immediate);
 
@@ -2009,11 +1992,11 @@ mod tests {
 
     #[test]
     fn cpx_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_x = 0x50;
         cpu.mem_write_u8(0x05, 0x30); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cpx(&AddressMode::ZeroPage);
 
@@ -2024,10 +2007,10 @@ mod tests {
     // CPY Tests
     #[test]
     fn cpy_immediate_equal() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x30;
-        cpu.mem_write_u8(0x8000, 0x30); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x30); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cpy(&AddressMode::Immediate);
 
@@ -2037,10 +2020,10 @@ mod tests {
 
     #[test]
     fn cpy_immediate_less() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_y = 0x30;
-        cpu.mem_write_u8(0x8000, 0x50); // Immediate value at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x50); // Immediate value at PC
+        cpu.program_counter = 0x0800;
 
         cpu.cpy(&AddressMode::Immediate);
 
@@ -2051,7 +2034,7 @@ mod tests {
     // LSR Tests
     #[test]
     fn lsr_accumulator() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x02;
 
         cpu.lsr(&AddressMode::Accumulator);
@@ -2064,7 +2047,7 @@ mod tests {
 
     #[test]
     fn lsr_accumulator_sets_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x03; // 00000011
 
         cpu.lsr(&AddressMode::Accumulator);
@@ -2075,7 +2058,7 @@ mod tests {
 
     #[test]
     fn lsr_accumulator_sets_zero() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x01;
 
         cpu.lsr(&AddressMode::Accumulator);
@@ -2087,10 +2070,10 @@ mod tests {
 
     #[test]
     fn lsr_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x02); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.lsr(&AddressMode::ZeroPage);
 
@@ -2102,7 +2085,7 @@ mod tests {
     // ROL Tests
     #[test]
     fn rol_accumulator() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x01;
         cpu.status.insert(Status::Carry);
 
@@ -2114,7 +2097,7 @@ mod tests {
 
     #[test]
     fn rol_accumulator_sets_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x81; // 10000001
 
         cpu.rol(&AddressMode::Accumulator);
@@ -2125,10 +2108,10 @@ mod tests {
 
     #[test]
     fn rol_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Carry);
 
         cpu.rol(&AddressMode::ZeroPage);
@@ -2140,7 +2123,7 @@ mod tests {
     // ROR Tests
     #[test]
     fn ror_accumulator() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x02;
         cpu.status.insert(Status::Carry);
 
@@ -2153,7 +2136,7 @@ mod tests {
 
     #[test]
     fn ror_accumulator_sets_carry() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x03; // 00000011
 
         cpu.ror(&AddressMode::Accumulator);
@@ -2164,10 +2147,10 @@ mod tests {
 
     #[test]
     fn ror_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.mem_write_u8(0x10, 0x02); // Value at address 0x10
-        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x10); // Address operand at PC
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Carry);
 
         cpu.ror(&AddressMode::ZeroPage);
@@ -2179,144 +2162,144 @@ mod tests {
     // Branch Tests
     #[test]
     fn bcc_takes_branch_when_carry_clear() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.remove(Status::Carry);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bcc();
 
-        assert_eq!(cpu.program_counter, 0x8006); // 0x8000 + 5 + 1 (auto increment)
+        assert_eq!(cpu.program_counter, 0x0806); // 0x0800 + 5 + 1 (auto increment)
     }
 
     #[test]
     fn bcc_no_branch_when_carry_set() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Carry);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bcc();
 
-        assert_eq!(cpu.program_counter, 0x8001); // Only incremented by read_u8
+        assert_eq!(cpu.program_counter, 0x0801); // Only incremented by read_u8
     }
 
     #[test]
     fn bcs_takes_branch_when_carry_set() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Carry);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bcs();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn beq_takes_branch_when_zero_set() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Zero);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.beq();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn bne_takes_branch_when_zero_clear() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.remove(Status::Zero);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bne();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn bmi_takes_branch_when_negative_set() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Negative);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bmi();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn bpl_takes_branch_when_negative_clear() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.remove(Status::Negative);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bpl();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn bvc_takes_branch_when_overflow_clear() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.remove(Status::Overflow);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bvc();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn bvs_takes_branch_when_overflow_set() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Overflow);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.bvs();
 
-        assert_eq!(cpu.program_counter, 0x8006);
+        assert_eq!(cpu.program_counter, 0x0806);
     }
 
     #[test]
     fn branch_backwards() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.insert(Status::Zero);
-        cpu.mem_write_u8(0x8000, 0xFB); // -5 in two's complement
+        cpu.mem_write_u8(0x0800, 0xFB); // -5 in two's complement
 
         cpu.beq();
 
-        assert_eq!(cpu.program_counter, 0x7FFC); // 0x8000 + (-5) + 1
+        assert_eq!(cpu.program_counter, 0x07FC); // 0x0800 + (-5) + 1
     }
 
     #[test]
     fn branch_no_condition() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
         cpu.status.remove(Status::Zero);
-        cpu.mem_write_u8(0x8000, 0x05); // Offset
+        cpu.mem_write_u8(0x0800, 0x05); // Offset
 
         cpu.beq();
 
-        assert_eq!(cpu.program_counter, 0x8001); // Only incremented by read_u8
+        assert_eq!(cpu.program_counter, 0x0801); // Only incremented by read_u8
     }
 
     // BIT Tests
     #[test]
     fn bit_zeropage() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xF0;
         cpu.mem_write_u8(0x05, 0xF0); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.bit(&AddressMode::ZeroPage);
 
@@ -2327,11 +2310,11 @@ mod tests {
 
     #[test]
     fn bit_zeropage_sets_zero() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0x0F;
         cpu.mem_write_u8(0x05, 0xF0); // Value at address 0x05
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.bit(&AddressMode::ZeroPage);
 
@@ -2342,11 +2325,11 @@ mod tests {
 
     #[test]
     fn bit_clears_flags() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.register_a = 0xFF;
         cpu.mem_write_u8(0x05, 0x3F); // Value at address 0x05 (bits 7,6 clear)
-        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
-        cpu.program_counter = 0x8000;
+        cpu.mem_write_u8(0x0800, 0x05); // Address operand at PC
+        cpu.program_counter = 0x0800;
 
         cpu.bit(&AddressMode::ZeroPage);
 
@@ -2357,10 +2340,10 @@ mod tests {
 
     #[test]
     fn jmp_absolute_test() {
-        let mut cpu = CPU::new();
-        cpu.program_counter = 0x8000;
-        cpu.mem_write_u8(0x8000, 0x34); // Low byte of target address
-        cpu.mem_write_u8(0x8001, 0x12); // High byte of target address
+        let mut cpu = CPU::default();
+        cpu.program_counter = 0x0800;
+        cpu.mem_write_u8(0x0800, 0x34); // Low byte of target address
+        cpu.mem_write_u8(0x0801, 0x12); // High byte of target address
 
         cpu.jmp(&AddressMode::Absolute);
 
@@ -2369,7 +2352,7 @@ mod tests {
 
     #[test]
     fn jmp_game_scenario() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::default();
         cpu.program_counter = 0x06bf;
         cpu.mem_write_u8(0x06bf, 0x4c); // JMP instruction
         cpu.mem_write_u8(0x06c0, 0x35); // Low byte of target address
