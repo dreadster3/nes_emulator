@@ -98,10 +98,10 @@ impl CPU {
     }
 
     pub fn stack_pop_u16(&mut self) -> u16 {
-        let hi = self.stack_pop();
         let lo = self.stack_pop();
+        let hi = self.stack_pop();
 
-        u16::from_le_bytes([hi, lo])
+        u16::from_le_bytes([lo, hi])
     }
 
     pub fn set_stack_pointer(&mut self, value: u8) {
@@ -152,7 +152,6 @@ impl CPU {
             callback(self);
 
             let instruction = self.read_u8();
-            println!("{instruction:02x}");
             let opcode = OPCODE_MAP
                 .get(&instruction)
                 .ok_or(CPUError::UnknownOpcode(instruction))?;
@@ -314,8 +313,9 @@ impl CPU {
                 self.mem_read_u16(base as u16)
             }
             AddressMode::IndirectY => {
-                let base = self.read_u8().wrapping_add(self.register_y);
-                self.mem_read_u16(base as u16)
+                let base = self.read_u8();
+                let address = self.mem_read_u16(base as u16);
+                address.wrapping_add(self.register_y as u16)
             }
             AddressMode::None => unreachable!(),
             AddressMode::Accumulator => unreachable!(),
@@ -340,13 +340,10 @@ mod tests {
     // ASL Tests
     #[test]
     fn asl_accumulator() {
-        let program: Vec<u8> = vec![0x0A, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x01;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Accumulator);
 
         assert_eq!(cpu.register_a, 0x02);
         assert!(cpu.status.is_empty());
@@ -354,13 +351,10 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_carry() {
-        let program: Vec<u8> = vec![0x0A, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x81; // 10000001
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Accumulator);
 
         assert_eq!(cpu.register_a, 0x02);
         assert_eq!(cpu.status, Status::Carry);
@@ -368,13 +362,10 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_zero() {
-        let program: Vec<u8> = vec![0x0A, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x00;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Accumulator);
 
         assert_eq!(cpu.register_a, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -382,13 +373,10 @@ mod tests {
 
     #[test]
     fn asl_accumulator_sets_negative() {
-        let program: Vec<u8> = vec![0x0A, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x40; // Shift to get 10000000
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Accumulator);
 
         assert_eq!(cpu.register_a, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -396,13 +384,12 @@ mod tests {
 
     #[test]
     fn asl_zeropage() {
-        let program: Vec<u8> = vec![0x06, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0x01);
+        cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x02);
         assert!(cpu.status.is_empty());
@@ -410,14 +397,13 @@ mod tests {
 
     #[test]
     fn asl_zeropage_x() {
-        let program: Vec<u8> = vec![0x16, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x15, 0x01);
+        cpu.mem_write_u8(0x15, 0x01); // Value at address 0x15 (0x10 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.mem_read_u8(0x15), 0x02);
         assert!(cpu.status.is_empty());
@@ -425,13 +411,12 @@ mod tests {
 
     #[test]
     fn asl_absolute() {
-        let program: Vec<u8> = vec![0x0E, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x01);
+        cpu.mem_write_u8(0x2000, 0x01); // Value at address 0x2000
+        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Absolute);
 
         assert_eq!(cpu.mem_read_u8(0x2000), 0x02);
         assert!(cpu.status.is_empty());
@@ -439,14 +424,13 @@ mod tests {
 
     #[test]
     fn asl_absolute_x() {
-        let program: Vec<u8> = vec![0x1E, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x01);
+        cpu.mem_write_u8(0x2005, 0x01); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.mem_read_u8(0x2005), 0x02);
         assert!(cpu.status.is_empty());
@@ -454,13 +438,12 @@ mod tests {
 
     #[test]
     fn asl_absolute_sets_carry_and_zero() {
-        let program: Vec<u8> = vec![0x0E, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.mem_write_u8(0x2000, 0x80); // 10000000 -> 00000000 with carry
+        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.asl(&AddressMode::Absolute);
 
         assert_eq!(cpu.mem_read_u8(0x2000), 0x00);
         assert_eq!(cpu.status, Status::Carry | Status::Zero);
@@ -468,12 +451,11 @@ mod tests {
 
     #[test]
     fn lda_immediate() {
-        let program: Vec<u8> = vec![0xa9, 0x05, 0x00];
         let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 5);
         assert!(cpu.status.is_empty());
@@ -481,12 +463,11 @@ mod tests {
 
     #[test]
     fn lda_immediate_zero() {
-        let program: Vec<u8> = vec![0xa9, 0x00, 0x00];
         let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x8000, 0x00); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0);
         assert_eq!(cpu.status, Status::Zero);
@@ -494,13 +475,12 @@ mod tests {
 
     #[test]
     fn lda_zeropage() {
-        let program: Vec<u8> = vec![0xa5, 0x05, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x05, 0x20);
+        cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -508,14 +488,13 @@ mod tests {
 
     #[test]
     fn lda_zeropage_x() {
-        let program: Vec<u8> = vec![0xb5, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x0a, 0x20);
+        cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -523,13 +502,12 @@ mod tests {
 
     #[test]
     fn lda_absolute() {
-        let program: Vec<u8> = vec![0xad, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20);
+        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::Absolute);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -537,14 +515,13 @@ mod tests {
 
     #[test]
     fn lda_absolute_x() {
-        let program: Vec<u8> = vec![0xbd, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -552,14 +529,13 @@ mod tests {
 
     #[test]
     fn lda_absolute_y() {
-        let program: Vec<u8> = vec![0xb9, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::AbsoluteY);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -567,16 +543,15 @@ mod tests {
 
     #[test]
     fn lda_indirect_x() {
-        let program: Vec<u8> = vec![0xa1, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
+        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::IndirectX);
 
         assert_eq!(cpu.register_a, 0x10);
         assert!(cpu.status.is_empty());
@@ -584,16 +559,14 @@ mod tests {
 
     #[test]
     fn lda_indirect_y() {
-        let program: Vec<u8> = vec![0xb1, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
+        cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.lda(&AddressMode::IndirectY);
 
         assert_eq!(cpu.register_a, 0x10);
         assert!(cpu.status.is_empty());
@@ -601,12 +574,11 @@ mod tests {
 
     #[test]
     fn ldx_immediate() {
-        let program: Vec<u8> = vec![0xa2, 0x05, 0x00];
         let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldx(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_x, 5);
         assert!(cpu.status.is_empty());
@@ -614,13 +586,12 @@ mod tests {
 
     #[test]
     fn ldx_zeropage() {
-        let program: Vec<u8> = vec![0xa6, 0x05, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x05, 0x20);
+        cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldx(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_x, 0x20);
         assert!(cpu.status.is_empty());
@@ -628,14 +599,13 @@ mod tests {
 
     #[test]
     fn ldx_zeropage_y() {
-        let program: Vec<u8> = vec![0xb6, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x05;
-        cpu.mem_write_u8(0x0a, 0x20);
+        cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldx(&AddressMode::ZeroPageY);
 
         assert_eq!(cpu.register_x, 0x20);
         assert!(cpu.status.is_empty());
@@ -643,13 +613,12 @@ mod tests {
 
     #[test]
     fn ldx_absolute() {
-        let program: Vec<u8> = vec![0xae, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20);
+        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldx(&AddressMode::Absolute);
 
         assert_eq!(cpu.register_x, 0x20);
         assert!(cpu.status.is_empty());
@@ -657,14 +626,13 @@ mod tests {
 
     #[test]
     fn ldx_absolute_y() {
-        let program: Vec<u8> = vec![0xbe, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldx(&AddressMode::AbsoluteY);
 
         assert_eq!(cpu.register_x, 0x20);
         assert!(cpu.status.is_empty());
@@ -672,12 +640,11 @@ mod tests {
 
     #[test]
     fn ldy_immediate() {
-        let program: Vec<u8> = vec![0xa0, 0x05, 0x00];
         let mut cpu = CPU::new();
+        cpu.mem_write_u8(0x8000, 0x05); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldy(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_y, 5);
         assert!(cpu.status.is_empty());
@@ -685,13 +652,12 @@ mod tests {
 
     #[test]
     fn ldy_zeropage() {
-        let program: Vec<u8> = vec![0xa4, 0x05, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x05, 0x20);
+        cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldy(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_y, 0x20);
         assert!(cpu.status.is_empty());
@@ -699,14 +665,13 @@ mod tests {
 
     #[test]
     fn ldy_zeropage_x() {
-        let program: Vec<u8> = vec![0xb4, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x0a, 0x20);
+        cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldy(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.register_y, 0x20);
         assert!(cpu.status.is_empty());
@@ -714,13 +679,12 @@ mod tests {
 
     #[test]
     fn ldy_absolute() {
-        let program: Vec<u8> = vec![0xac, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20);
+        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldy(&AddressMode::Absolute);
 
         assert_eq!(cpu.register_y, 0x20);
         assert!(cpu.status.is_empty());
@@ -728,14 +692,13 @@ mod tests {
 
     #[test]
     fn ldy_absolute_x() {
-        let program: Vec<u8> = vec![0xbc, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ldy(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.register_y, 0x20);
         assert!(cpu.status.is_empty());
@@ -743,13 +706,12 @@ mod tests {
 
     #[test]
     fn and_immediate() {
-        let program: Vec<u8> = vec![0x29, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x10);
         assert!(cpu.status.is_empty());
@@ -757,14 +719,13 @@ mod tests {
 
     #[test]
     fn and_zeropage() {
-        let program: Vec<u8> = vec![0x25, 0x05, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x05, 0x20);
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x05, 0x20); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -772,15 +733,14 @@ mod tests {
 
     #[test]
     fn and_zeropage_x() {
-        let program: Vec<u8> = vec![0x35, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x0a, 0x20);
+        cpu.mem_write_u8(0x0a, 0x20); // Value at address 0x0a (0x05 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -788,14 +748,13 @@ mod tests {
 
     #[test]
     fn and_absolute() {
-        let program: Vec<u8> = vec![0xad, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x20);
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x2005, 0x20); // Value at address 0x2005
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::Absolute);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -803,15 +762,14 @@ mod tests {
 
     #[test]
     fn and_absolute_x() {
-        let program: Vec<u8> = vec![0x3d, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -819,15 +777,14 @@ mod tests {
 
     #[test]
     fn and_absolute_y() {
-        let program: Vec<u8> = vec![0x39, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x20);
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x2006, 0x20); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::AbsoluteY);
 
         assert_eq!(cpu.register_a, 0x20);
         assert!(cpu.status.is_empty());
@@ -835,17 +792,16 @@ mod tests {
 
     #[test]
     fn and_indirect_x() {
-        let program: Vec<u8> = vec![0x21, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
+        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::IndirectX);
 
         assert_eq!(cpu.register_a, 0x10);
         assert!(cpu.status.is_empty());
@@ -853,17 +809,15 @@ mod tests {
 
     #[test]
     fn and_indirect_y() {
-        let program: Vec<u8> = vec![0x31, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
+        cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.and(&AddressMode::IndirectY);
 
         assert_eq!(cpu.register_a, 0x10);
         assert!(cpu.status.is_empty());
@@ -871,13 +825,12 @@ mod tests {
 
     #[test]
     fn adc_immediate() {
-        let program: Vec<u8> = vec![0x69, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -885,14 +838,13 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry() {
-        let program: Vec<u8> = vec![0x69, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x05;
         cpu.status.insert(Status::Carry);
+        cpu.mem_write_u8(0x8000, 0x10); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x16);
         assert!(cpu.status.is_empty());
@@ -900,13 +852,12 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_overflow() {
-        let program: Vec<u8> = vec![0x69, 0x70, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x50;
+        cpu.mem_write_u8(0x8000, 0x70); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0xC0);
         assert_eq!(cpu.status, Status::Negative | Status::Overflow);
@@ -914,13 +865,12 @@ mod tests {
 
     #[test]
     fn adc_immediate_with_carry_flag() {
-        let program: Vec<u8> = vec![0x69, 0xFF, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x01;
+        cpu.mem_write_u8(0x8000, 0xFF); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x00);
         assert_eq!(cpu.status, Status::Carry | Status::Zero);
@@ -928,14 +878,13 @@ mod tests {
 
     #[test]
     fn adc_zeropage() {
-        let program: Vec<u8> = vec![0x65, 0x05, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x05, 0x10);
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x05, 0x10); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -943,15 +892,14 @@ mod tests {
 
     #[test]
     fn adc_zeropage_x() {
-        let program: Vec<u8> = vec![0x75, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x0A, 0x10);
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x0A, 0x10); // Value at address 0x0A (0x05 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -959,14 +907,13 @@ mod tests {
 
     #[test]
     fn adc_absolute() {
-        let program: Vec<u8> = vec![0x6D, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2005, 0x10);
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x2005, 0x10); // Value at address 0x2005
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::Absolute);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -974,15 +921,14 @@ mod tests {
 
     #[test]
     fn adc_absolute_x() {
-        let program: Vec<u8> = vec![0x7D, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
-        cpu.mem_write_u8(0x2006, 0x10);
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x2006, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -990,15 +936,14 @@ mod tests {
 
     #[test]
     fn adc_absolute_y() {
-        let program: Vec<u8> = vec![0x79, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
-        cpu.mem_write_u8(0x2006, 0x10);
         cpu.register_a = 0x05;
+        cpu.mem_write_u8(0x2006, 0x10); // Value at address 0x2006 (0x2005 + 0x01)
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::AbsoluteY);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -1006,17 +951,16 @@ mod tests {
 
     #[test]
     fn adc_indirect_x() {
-        let program: Vec<u8> = vec![0x61, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u8(0x06, 0x20); // Low byte of target address at 0x06 (0x05 + 0x01)
+        cpu.mem_write_u8(0x07, 0x10); // High byte of target address at 0x07
+        cpu.mem_write_u8(0x1020, 0x10); // Value at target address 0x1020
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::IndirectX);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -1024,17 +968,15 @@ mod tests {
 
     #[test]
     fn adc_indirect_y() {
-        let program: Vec<u8> = vec![0x71, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
         cpu.register_a = 0x05;
-        cpu.mem_write_u8(0x06, 0x20);
-        cpu.mem_write_u8(0x07, 0x10);
-        cpu.mem_write_u8(0x1020, 0x10);
+        cpu.mem_write_u16(0x05, 0x1020); // Base target address stored at 0x05
+        cpu.mem_write_u8(0x1021, 0x10); // Value at target address 0x1021 (0x1020 + 0x01)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.adc(&AddressMode::IndirectY);
 
         assert_eq!(cpu.register_a, 0x15);
         assert!(cpu.status.is_empty());
@@ -1042,13 +984,12 @@ mod tests {
 
     #[test]
     fn sta_zeropage() {
-        let program: Vec<u8> = vec![0x85, 0x12, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x20;
+        cpu.mem_write_u8(0x8000, 0x12); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x12), 0x20);
         assert!(cpu.status.is_empty());
@@ -1056,28 +997,26 @@ mod tests {
 
     #[test]
     fn sta_zeropage_x() {
-        let program: Vec<u8> = vec![0x95, 0x12, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
         cpu.register_a = 0x20;
+        cpu.mem_write_u8(0x8000, 0x12); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::ZeroPageX);
 
-        assert_eq!(cpu.mem_read_u8(0x17), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x17), 0x20); // 0x12 + 0x05 = 0x17
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_absolute() {
-        let program: Vec<u8> = vec![0x8d, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x20;
+        cpu.mem_write_u16(0x8000, 0x2005); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::Absolute);
 
         assert_eq!(cpu.mem_read_u8(0x2005), 0x20);
         assert!(cpu.status.is_empty());
@@ -1085,45 +1024,42 @@ mod tests {
 
     #[test]
     fn sta_absolute_x() {
-        let program: Vec<u8> = vec![0x9d, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
         cpu.register_a = 0x20;
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::AbsoluteX);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_absolute_y() {
-        let program: Vec<u8> = vec![0x99, 0x05, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
         cpu.register_a = 0x20;
+        cpu.mem_write_u16(0x8000, 0x2005); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::AbsoluteY);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn sta_indirect_x() {
-        let program: Vec<u8> = vec![0x81, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x06, 0x2006);
+        cpu.mem_write_u16(0x06, 0x2006); // Target address at 0x06 (0x05 + 0x01)
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::IndirectX);
 
         assert_eq!(cpu.mem_read_u8(0x2006), 0x20);
         assert!(cpu.status.is_empty());
@@ -1131,29 +1067,25 @@ mod tests {
 
     #[test]
     fn sta_indirect_y() {
-        let program: Vec<u8> = vec![0x91, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
         cpu.register_a = 0x20;
-        cpu.mem_write_u16(0x06, 0x2006);
+        cpu.mem_write_u16(0x05, 0x2005); // Base target address at 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.sta(&AddressMode::IndirectY);
 
-        assert_eq!(cpu.mem_read_u8(0x2006), 0x20);
+        assert_eq!(cpu.mem_read_u8(0x2006), 0x20); // 0x2005 + 0x01 = 0x2006
         assert!(cpu.status.is_empty());
     }
 
     #[test]
     fn tax() {
-        let program: Vec<u8> = vec![0xaa, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 10;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tax();
 
         assert_eq!(cpu.register_x, 10);
         assert!(cpu.status.is_empty());
@@ -1161,13 +1093,10 @@ mod tests {
 
     #[test]
     fn tax_zero_flag() {
-        let program: Vec<u8> = vec![0xaa, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tax();
 
         assert_eq!(cpu.register_x, 0);
         assert_eq!(cpu.status, Status::Zero);
@@ -1175,13 +1104,10 @@ mod tests {
 
     #[test]
     fn tax_negative_flag() {
-        let program: Vec<u8> = vec![0xaa, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tax();
 
         assert_eq!(cpu.register_x, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1189,13 +1115,10 @@ mod tests {
 
     #[test]
     fn tay() {
-        let program: Vec<u8> = vec![0xa8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 10;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tay();
 
         assert_eq!(cpu.register_y, 10);
         assert!(cpu.status.is_empty());
@@ -1203,13 +1126,10 @@ mod tests {
 
     #[test]
     fn tay_zero_flag() {
-        let program: Vec<u8> = vec![0xa8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tay();
 
         assert_eq!(cpu.register_y, 0);
         assert_eq!(cpu.status, Status::Zero);
@@ -1217,13 +1137,10 @@ mod tests {
 
     #[test]
     fn tay_negative_flag() {
-        let program: Vec<u8> = vec![0xa8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tay();
 
         assert_eq!(cpu.register_y, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1231,13 +1148,10 @@ mod tests {
 
     #[test]
     fn txa() {
-        let program: Vec<u8> = vec![0x8a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 10;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txa();
 
         assert_eq!(cpu.register_a, 10);
         assert!(cpu.status.is_empty());
@@ -1245,13 +1159,10 @@ mod tests {
 
     #[test]
     fn txa_zero_flag() {
-        let program: Vec<u8> = vec![0x8a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txa();
 
         assert_eq!(cpu.register_a, 0);
         assert_eq!(cpu.status, Status::Zero);
@@ -1259,13 +1170,10 @@ mod tests {
 
     #[test]
     fn txa_negative_flag() {
-        let program: Vec<u8> = vec![0x8a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txa();
 
         assert_eq!(cpu.register_a, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1273,13 +1181,10 @@ mod tests {
 
     #[test]
     fn tya() {
-        let program: Vec<u8> = vec![0x98, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 10;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tya();
 
         assert_eq!(cpu.register_a, 10);
         assert!(cpu.status.is_empty());
@@ -1287,13 +1192,10 @@ mod tests {
 
     #[test]
     fn tya_zero_flag() {
-        let program: Vec<u8> = vec![0x98, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tya();
 
         assert_eq!(cpu.register_a, 0);
         assert_eq!(cpu.status, Status::Zero);
@@ -1301,13 +1203,10 @@ mod tests {
 
     #[test]
     fn tya_negative_flag() {
-        let program: Vec<u8> = vec![0x98, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tya();
 
         assert_eq!(cpu.register_a, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1315,13 +1214,10 @@ mod tests {
 
     #[test]
     fn inx() {
-        let program: Vec<u8> = vec![0xe8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 5;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inx();
 
         assert_eq!(cpu.register_x, 6);
         assert!(cpu.status.is_empty());
@@ -1329,26 +1225,20 @@ mod tests {
 
     #[test]
     fn inx_overflow() {
-        let program: Vec<u8> = vec![0xe8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0xff;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inx();
 
         assert_eq!(cpu.register_x, 0x00);
         assert_eq!(cpu.status, Status::Zero);
     }
     #[test]
     fn iny() {
-        let program: Vec<u8> = vec![0xc8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 5;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.iny();
 
         assert_eq!(cpu.register_y, 6);
         assert!(cpu.status.is_empty());
@@ -1356,13 +1246,10 @@ mod tests {
 
     #[test]
     fn iny_overflow() {
-        let program: Vec<u8> = vec![0xc8, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0xff;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.iny();
 
         assert_eq!(cpu.register_y, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1370,13 +1257,12 @@ mod tests {
 
     #[test]
     fn inc_zeropage() {
-        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0x05);
+        cpu.mem_write_u8(0x10, 0x05); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x06);
         assert!(cpu.status.is_empty());
@@ -1384,14 +1270,13 @@ mod tests {
 
     #[test]
     fn inc_zeropage_x() {
-        let program: Vec<u8> = vec![0xF6, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x15, 0x05);
+        cpu.mem_write_u8(0x15, 0x05); // Value at address 0x15 (0x10 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.mem_read_u8(0x15), 0x06);
         assert!(cpu.status.is_empty());
@@ -1399,13 +1284,12 @@ mod tests {
 
     #[test]
     fn inc_absolute() {
-        let program: Vec<u8> = vec![0xEE, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x05);
+        cpu.mem_write_u8(0x2000, 0x05); // Value at address 0x2000
+        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::Absolute);
 
         assert_eq!(cpu.mem_read_u8(0x2000), 0x06);
         assert!(cpu.status.is_empty());
@@ -1413,14 +1297,13 @@ mod tests {
 
     #[test]
     fn inc_absolute_x() {
-        let program: Vec<u8> = vec![0xFE, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x05);
+        cpu.mem_write_u8(0x2005, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.mem_read_u8(0x2005), 0x06);
         assert!(cpu.status.is_empty());
@@ -1428,13 +1311,12 @@ mod tests {
 
     #[test]
     fn inc_overflow() {
-        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0xFF);
+        cpu.mem_write_u8(0x10, 0xFF); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1442,13 +1324,12 @@ mod tests {
 
     #[test]
     fn inc_negative_flag() {
-        let program: Vec<u8> = vec![0xE6, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.mem_write_u8(0x10, 0x7F); // 127 -> 128 (0x80)
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.inc(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1456,13 +1337,10 @@ mod tests {
 
     #[test]
     fn dex_decrements_x() {
-        let program: Vec<u8> = vec![0xCA, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dex();
 
         assert_eq!(cpu.register_x, 0x04);
         assert!(!cpu.status.contains(Status::Zero));
@@ -1471,13 +1349,10 @@ mod tests {
 
     #[test]
     fn dex_sets_zero_flag() {
-        let program: Vec<u8> = vec![0xCA, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x01;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dex();
 
         assert_eq!(cpu.register_x, 0x00);
         assert!(cpu.status.contains(Status::Zero));
@@ -1486,13 +1361,10 @@ mod tests {
 
     #[test]
     fn dex_sets_negative_flag() {
-        let program: Vec<u8> = vec![0xCA, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x00;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dex();
 
         assert_eq!(cpu.register_x, 0xFF);
         assert!(!cpu.status.contains(Status::Zero));
@@ -1501,13 +1373,10 @@ mod tests {
 
     #[test]
     fn dey_decrements_y() {
-        let program: Vec<u8> = vec![0x88, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x05;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dey();
 
         assert_eq!(cpu.register_y, 0x04);
         assert!(!cpu.status.contains(Status::Zero));
@@ -1516,13 +1385,10 @@ mod tests {
 
     #[test]
     fn dey_sets_zero_flag() {
-        let program: Vec<u8> = vec![0x88, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x01;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dey();
 
         assert_eq!(cpu.register_y, 0x00);
         assert!(cpu.status.contains(Status::Zero));
@@ -1531,13 +1397,10 @@ mod tests {
 
     #[test]
     fn dey_sets_negative_flag() {
-        let program: Vec<u8> = vec![0x88, 0x00];
         let mut cpu = CPU::new();
         cpu.register_y = 0x00;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dey();
 
         assert_eq!(cpu.register_y, 0xFF);
         assert!(!cpu.status.contains(Status::Zero));
@@ -1546,13 +1409,12 @@ mod tests {
 
     #[test]
     fn dec_zeropage() {
-        let program: Vec<u8> = vec![0xC6, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0x05);
+        cpu.mem_write_u8(0x10, 0x05); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x04);
         assert!(cpu.status.is_empty());
@@ -1560,14 +1422,13 @@ mod tests {
 
     #[test]
     fn dec_zeropage_x() {
-        let program: Vec<u8> = vec![0xD6, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x15, 0x05);
+        cpu.mem_write_u8(0x15, 0x05); // Value at address 0x15 (0x10 + 0x05)
+        cpu.mem_write_u8(0x8000, 0x10); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::ZeroPageX);
 
         assert_eq!(cpu.mem_read_u8(0x15), 0x04);
         assert!(cpu.status.is_empty());
@@ -1575,13 +1436,12 @@ mod tests {
 
     #[test]
     fn dec_absolute() {
-        let program: Vec<u8> = vec![0xCE, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x2000, 0x05);
+        cpu.mem_write_u8(0x2000, 0x05); // Value at address 0x2000
+        cpu.mem_write_u16(0x8000, 0x2000); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::Absolute);
 
         assert_eq!(cpu.mem_read_u8(0x2000), 0x04);
         assert!(cpu.status.is_empty());
@@ -1589,14 +1449,13 @@ mod tests {
 
     #[test]
     fn dec_absolute_x() {
-        let program: Vec<u8> = vec![0xDE, 0x00, 0x20, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x05;
-        cpu.mem_write_u8(0x2005, 0x05);
+        cpu.mem_write_u8(0x2005, 0x05); // Value at address 0x2005 (0x2000 + 0x05)
+        cpu.mem_write_u16(0x8000, 0x2000); // Base address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::AbsoluteX);
 
         assert_eq!(cpu.mem_read_u8(0x2005), 0x04);
         assert!(cpu.status.is_empty());
@@ -1604,13 +1463,12 @@ mod tests {
 
     #[test]
     fn dec_underflow() {
-        let program: Vec<u8> = vec![0xC6, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0x00);
+        cpu.mem_write_u8(0x10, 0x00); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0xFF);
         assert_eq!(cpu.status, Status::Negative);
@@ -1618,13 +1476,12 @@ mod tests {
 
     #[test]
     fn dec_sets_zero_flag() {
-        let program: Vec<u8> = vec![0xC6, 0x10, 0x00];
         let mut cpu = CPU::new();
-        cpu.mem_write_u8(0x10, 0x01);
+        cpu.mem_write_u8(0x10, 0x01); // Value at address 0x10
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1632,13 +1489,12 @@ mod tests {
 
     #[test]
     fn dec_negative_flag() {
-        let program: Vec<u8> = vec![0xC6, 0x10, 0x00];
         let mut cpu = CPU::new();
         cpu.mem_write_u8(0x10, 0x81); // 129 -> 128 (0x80)
+        cpu.mem_write_u8(0x8000, 0x10); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.dec(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.mem_read_u8(0x10), 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1646,13 +1502,10 @@ mod tests {
 
     #[test]
     fn tsx() {
-        let program: Vec<u8> = vec![0xba, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0x50;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tsx();
 
         assert_eq!(cpu.register_x, 0x50);
         assert!(cpu.status.is_empty());
@@ -1660,13 +1513,10 @@ mod tests {
 
     #[test]
     fn tsx_zero_flag() {
-        let program: Vec<u8> = vec![0xba, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0x00;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tsx();
 
         assert_eq!(cpu.register_x, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1674,13 +1524,10 @@ mod tests {
 
     #[test]
     fn tsx_negative_flag() {
-        let program: Vec<u8> = vec![0xba, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.tsx();
 
         assert_eq!(cpu.register_x, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1688,13 +1535,10 @@ mod tests {
 
     #[test]
     fn txs() {
-        let program: Vec<u8> = vec![0x9a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x50;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txs();
 
         assert_eq!(cpu.stack_pointer, 0x50);
         assert!(cpu.status.is_empty());
@@ -1702,13 +1546,10 @@ mod tests {
 
     #[test]
     fn txs_zero_flag() {
-        let program: Vec<u8> = vec![0x9a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x00;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txs();
 
         assert_eq!(cpu.stack_pointer, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1716,13 +1557,10 @@ mod tests {
 
     #[test]
     fn txs_negative_flag() {
-        let program: Vec<u8> = vec![0x9a, 0x00];
         let mut cpu = CPU::new();
         cpu.register_x = 0x80;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.txs();
 
         assert_eq!(cpu.stack_pointer, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1730,13 +1568,10 @@ mod tests {
 
     #[test]
     fn pha() {
-        let program: Vec<u8> = vec![0x48, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x42;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.pha();
 
         assert_eq!(cpu.mem_read_u8(0x01FF), 0x42);
         assert_eq!(cpu.stack_pointer, 0xFE);
@@ -1744,14 +1579,11 @@ mod tests {
 
     #[test]
     fn pla() {
-        let program: Vec<u8> = vec![0x68, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x42);
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.pla();
 
         assert_eq!(cpu.register_a, 0x42);
         assert_eq!(cpu.stack_pointer, 0xFF);
@@ -1760,14 +1592,11 @@ mod tests {
 
     #[test]
     fn pla_zero_flag() {
-        let program: Vec<u8> = vec![0x68, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x00);
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.pla();
 
         assert_eq!(cpu.register_a, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1775,14 +1604,11 @@ mod tests {
 
     #[test]
     fn pla_negative_flag() {
-        let program: Vec<u8> = vec![0x68, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, 0x80);
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.pla();
 
         assert_eq!(cpu.register_a, 0x80);
         assert_eq!(cpu.status, Status::Negative);
@@ -1790,13 +1616,10 @@ mod tests {
 
     #[test]
     fn php() {
-        let program: Vec<u8> = vec![0x08, 0x00];
         let mut cpu = CPU::new();
         cpu.status = Status::Carry | Status::Zero;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.php();
 
         assert_eq!(
             cpu.mem_read_u8(0x01FF),
@@ -1807,14 +1630,11 @@ mod tests {
 
     #[test]
     fn plp() {
-        let program: Vec<u8> = vec![0x28, 0x00];
         let mut cpu = CPU::new();
         cpu.stack_pointer = 0xFE;
         cpu.mem_write_u8(0x01FF, (Status::Carry | Status::Zero).bits());
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.plp();
 
         assert_eq!(cpu.status, Status::Carry | Status::Zero);
         assert_eq!(cpu.stack_pointer, 0xFF);
@@ -1822,13 +1642,12 @@ mod tests {
 
     #[test]
     fn eor_immediate() {
-        let program: Vec<u8> = vec![0x49, 0x0F, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x8000, 0x0F); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.eor(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0xFF);
         assert_eq!(cpu.status, Status::Negative);
@@ -1836,13 +1655,12 @@ mod tests {
 
     #[test]
     fn eor_zero_flag() {
-        let program: Vec<u8> = vec![0x49, 0xFF, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xFF;
+        cpu.mem_write_u8(0x8000, 0xFF); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.eor(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1850,14 +1668,13 @@ mod tests {
 
     #[test]
     fn eor_zeropage() {
-        let program: Vec<u8> = vec![0x45, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x05, 0x0F);
+        cpu.mem_write_u8(0x05, 0x0F); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.eor(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_a, 0xFF);
         assert_eq!(cpu.status, Status::Negative);
@@ -1865,13 +1682,12 @@ mod tests {
 
     #[test]
     fn ora_immediate() {
-        let program: Vec<u8> = vec![0x09, 0x0F, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xF0;
+        cpu.mem_write_u8(0x8000, 0x0F); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ora(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0xFF);
         assert_eq!(cpu.status, Status::Negative);
@@ -1879,13 +1695,12 @@ mod tests {
 
     #[test]
     fn ora_zero_flag() {
-        let program: Vec<u8> = vec![0x09, 0x00, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0x00;
+        cpu.mem_write_u8(0x8000, 0x00); // Immediate value at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ora(&AddressMode::Immediate);
 
         assert_eq!(cpu.register_a, 0x00);
         assert_eq!(cpu.status, Status::Zero);
@@ -1893,16 +1708,183 @@ mod tests {
 
     #[test]
     fn ora_zeropage() {
-        let program: Vec<u8> = vec![0x05, 0x05, 0x00];
         let mut cpu = CPU::new();
         cpu.register_a = 0xF0;
-        cpu.mem_write_u8(0x05, 0x0F);
+        cpu.mem_write_u8(0x05, 0x0F); // Value at address 0x05
+        cpu.mem_write_u8(0x8000, 0x05); // Address operand at PC
+        cpu.program_counter = 0x8000;
 
-        if let Err(err) = cpu.load_and_run(program) {
-            unreachable!("{}", err);
-        }
+        cpu.ora(&AddressMode::ZeroPage);
 
         assert_eq!(cpu.register_a, 0xFF);
         assert_eq!(cpu.status, Status::Negative);
+    }
+
+    // Jump Operations Tests
+    #[test]
+    fn jmp_absolute() {
+        let mut cpu = CPU::new();
+        cpu.mem_write_u16(0x8000, 0x1234); // Target address at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.jmp(&AddressMode::Absolute);
+
+        assert_eq!(cpu.program_counter, 0x1234);
+    }
+
+    #[test]
+    fn jmp_indirect() {
+        let mut cpu = CPU::new();
+        cpu.mem_write_u16(0x1234, 0x5678); // Target address stored at 0x1234
+        cpu.mem_write_u16(0x8000, 0x1234); // Pointer address at PC
+        cpu.program_counter = 0x8000;
+
+        cpu.jmp(&AddressMode::Indirect);
+
+        assert_eq!(cpu.program_counter, 0x5678);
+    }
+
+    #[test]
+    fn jsr_pushes_return_address() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x8000, 0x1234); // Target address at PC
+
+        cpu.jsr(&AddressMode::Absolute);
+
+        assert_eq!(cpu.program_counter, 0x1234);
+        assert_eq!(cpu.stack_pointer, 0xFD);
+
+        // Check that return address - 1 was pushed to stack
+        let return_addr = cpu.stack_pop_u16();
+        assert_eq!(return_addr, 0x8001); // PC + 2 - 1 = 0x8000 + 2 - 1
+    }
+
+    #[test]
+    fn rts_returns_to_caller() {
+        let mut cpu = CPU::new();
+        cpu.stack_push_u16(0x1234);
+
+        cpu.rts();
+
+        assert_eq!(cpu.program_counter, 0x1235);
+        assert_eq!(cpu.stack_pointer, 0xFF);
+    }
+
+    #[test]
+    fn rti_restores_status_and_pc() {
+        let mut cpu = CPU::new();
+        cpu.stack_push_u16(0x1234); // PC pushed first
+        cpu.stack_push(0b10010001); // Status pushed second (will be popped first)
+
+        cpu.rti();
+
+        assert_eq!(cpu.program_counter, 0x1234);
+        assert_eq!(cpu.status.bits(), 0b10010001);
+        assert_eq!(cpu.stack_pointer, 0xFF);
+    }
+
+    #[test]
+    fn jsr_rts_sequence() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.stack_pointer = 0xFF;
+
+        cpu.stack_push_u16(0x8002);
+        cpu.rts();
+        assert_eq!(cpu.program_counter, 0x8003);
+        assert_eq!(cpu.stack_pointer, 0xFF);
+    }
+
+    // Status Flag Operations Tests
+    #[test]
+    fn clc_clears_carry() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(Status::Carry);
+
+        cpu.clc();
+
+        assert!(!cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn sec_sets_carry() {
+        let mut cpu = CPU::new();
+
+        cpu.sec();
+
+        assert!(cpu.status.contains(Status::Carry));
+    }
+
+    #[test]
+    fn cli_clears_interrupt_disable() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(Status::InterruptDisable);
+
+        cpu.cli();
+
+        assert!(!cpu.status.contains(Status::InterruptDisable));
+    }
+
+    #[test]
+    fn sei_sets_interrupt_disable() {
+        let mut cpu = CPU::new();
+
+        cpu.sei();
+
+        assert!(cpu.status.contains(Status::InterruptDisable));
+    }
+
+    #[test]
+    fn cld_clears_decimal() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(Status::Decimal);
+
+        cpu.cld();
+
+        assert!(!cpu.status.contains(Status::Decimal));
+    }
+
+    #[test]
+    fn sed_sets_decimal() {
+        let mut cpu = CPU::new();
+
+        cpu.sed();
+
+        assert!(cpu.status.contains(Status::Decimal));
+    }
+
+    #[test]
+    fn clv_clears_overflow() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(Status::Overflow);
+
+        cpu.clv();
+
+        assert!(!cpu.status.contains(Status::Overflow));
+    }
+
+    #[test]
+    fn flag_operations_dont_affect_other_flags() {
+        let mut cpu = CPU::new();
+        cpu.status = Status::Carry | Status::Zero | Status::Negative;
+
+        cpu.clc();
+
+        assert!(!cpu.status.contains(Status::Carry));
+        assert!(cpu.status.contains(Status::Zero));
+        assert!(cpu.status.contains(Status::Negative));
+    }
+
+    #[test]
+    fn indirect_addressing_mode() {
+        let mut cpu = CPU::new();
+        cpu.program_counter = 0x8000;
+        cpu.mem_write_u16(0x8000, 0x9000); // Pointer address at PC
+        cpu.mem_write_u16(0x9000, 0xA000); // Target address at pointer location
+
+        let address = cpu.get_operand_address(&AddressMode::Indirect);
+        assert_eq!(address, 0xA000);
+        assert_eq!(cpu.program_counter, 0x8002);
     }
 }
