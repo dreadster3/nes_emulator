@@ -1,13 +1,13 @@
-mod bus;
 mod instructions;
 pub mod memory;
+mod opcodes;
 
+use crate::bus::Bus;
 use bitflags::bitflags;
-use bus::Bus;
 use derivative::Derivative;
 use thiserror::Error;
 
-use crate::opcodes::{AddressMode, Mnemonic, OPCODE_MAP};
+use opcodes::{AddressMode, Mnemonic, OPCODE_MAP};
 
 use instructions::*;
 use memory::Memory;
@@ -50,7 +50,7 @@ pub enum CPUError {
 }
 
 impl CPU {
-    pub fn new(bus: Option<Bus>) -> Self {
+    pub fn new(bus: Bus) -> Self {
         CPU {
             register_a: 0,
             register_x: 0,
@@ -58,7 +58,7 @@ impl CPU {
             status: Status::empty(),
             program_counter: 0,
             stack_pointer: 0xFF,
-            bus: bus.unwrap_or(Bus::new()),
+            bus,
         }
     }
 
@@ -216,20 +216,6 @@ impl CPU {
         }
 
         Ok(())
-    }
-
-    pub fn load_and_run(&mut self, program: Vec<u8>) -> Result<(), CPUError> {
-        self.load(program);
-        self.reset();
-        self.run()
-    }
-
-    pub fn load(&mut self, program: Vec<u8>) {
-        let start = 0x0600;
-        for i in 0..(program.len() as u16) {
-            self.mem_write_u8(i, program[i as usize]);
-        }
-        self.mem_write_u16(0xFFFC, start as u16);
     }
 
     pub fn reset(&mut self) {

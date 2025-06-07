@@ -1,6 +1,7 @@
 use derivative::Derivative;
 
-use super::memory::Memory;
+use crate::Memory;
+use crate::rom::ROM;
 
 const RAM_START: u16 = 0x0000;
 const RAM_END: u16 = 0x1FFF;
@@ -12,6 +13,7 @@ const PPU_SIZE_ADDRESSES: usize = ((PPU_END - PPU_START + 1) / 4) as usize;
 enum AddressType {
     RAM(u16),
     PPU(u16),
+    ROM(u16),
     Unknown(u16),
 }
 
@@ -20,18 +22,23 @@ enum AddressType {
 pub struct Bus {
     #[derivative(Debug = "ignore")]
     vram: [u8; RAM_SIZE_ADDRESSES],
+    rom: ROM,
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        Self {
+            vram: [0; RAM_SIZE_ADDRESSES],
+            rom: ROM::default(),
+        }
     }
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new(rom: ROM) -> Self {
         Bus {
             vram: [0; RAM_SIZE_ADDRESSES],
+            rom,
         }
     }
 
@@ -39,6 +46,7 @@ impl Bus {
         match address {
             RAM_START..=RAM_END => AddressType::RAM(address & 0b111_1111_1111),
             PPU_START..=PPU_END => AddressType::PPU(address & 0b10_0000_0000_0111),
+            0x8000..=0xFFFF => AddressType::ROM(address),
             _ => AddressType::Unknown(address),
         }
     }
@@ -55,8 +63,11 @@ impl Memory for Bus {
             AddressType::PPU(add) => {
                 todo!("PPU not supported")
             }
+            AddressType::ROM(add) => {
+                panic!("Attempt to write to ROM: {add:#04x}");
+            }
             AddressType::Unknown(add) => {
-                println!("Unknown address: {:#04x}", add);
+                eprintln!("Unknown address: {add:#04x}");
             }
         }
     }
@@ -67,6 +78,7 @@ impl Memory for Bus {
         match normalized {
             AddressType::RAM(add) => self.vram[add as usize],
             AddressType::PPU(add) => todo!("PPU not supported"),
+            AddressType::ROM(addr) => self.rom.read_program_rom(addr),
             AddressType::Unknown(add) => {
                 eprintln!("Unknown address: {:#04x}", add);
                 0
