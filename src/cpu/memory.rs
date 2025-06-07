@@ -18,10 +18,10 @@ pub trait Memory {
 
 impl Memory for CPU {
     fn mem_read_u8(&self, address: u16) -> u8 {
-        self.memory[address as usize]
+        self.bus.mem_read_u8(address)
     }
 
     fn mem_write_u8(&mut self, address: u16, value: u8) {
-        self.memory[address as usize] = value;
+        self.bus.mem_write_u8(address, value);
     }
 }

@@ -119,7 +119,7 @@ fn main() {
         0x60, 0xa6, 0xff, 0xea, 0xea, 0xca, 0xd0, 0xfb, 0x60,
     ];
 
-    let mut cpu = cpu::CPU::new();
+    let mut cpu = cpu::CPU::default();
     cpu.load(game_code);
     cpu.reset();
 
